@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { getAdminEvents, updateEvent } from '../../api/events'
+import { getAdminEvents, updateEvent, deleteEvent } from '../../api/events'
 import Navbar from '../../components/Navbar'
 import Spinner from '../../components/Spinner'
 
@@ -12,9 +12,52 @@ function formatDate(dt) {
   })
 }
 
+/* ── Confirm delete modal ────────────────────────────────────────────────────  */
+function DeleteModal({ event, onConfirm, onCancel, deleting }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.45)' }}>
+      <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 animate-fade-in">
+        <div className="flex items-center gap-3 mb-4">
+          <span className="text-3xl">🗑️</span>
+          <div>
+            <h3 className="font-extrabold text-[#1E2A4A] text-lg">Delete Event?</h3>
+            <p className="text-xs text-gray-500 mt-0.5">This action cannot be undone.</p>
+          </div>
+        </div>
+        <p className="text-sm text-gray-700 mb-5">
+          Are you sure you want to delete <span className="font-semibold">"{event.title}"</span>?
+          This is only possible if no attendees have registered.
+        </p>
+        <div className="flex gap-3">
+          <button
+            onClick={onConfirm}
+            disabled={deleting}
+            className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-60
+              text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2"
+          >
+            {deleting && <Spinner size="sm" />}
+            {deleting ? 'Deleting…' : 'Delete'}
+          </button>
+          <button
+            onClick={onCancel}
+            disabled={deleting}
+            className="flex-1 py-2.5 rounded-xl border border-gray-300 hover:border-gray-400
+              text-gray-700 font-semibold text-sm transition-colors disabled:opacity-60"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ── Event row card ─────────────────────────────────────────────────────────── */
-function EventRow({ event, onTogglePublish }) {
+function EventRow({ event, onTogglePublish, onDelete }) {
   const [toggling, setToggling] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const handleToggle = async () => {
     setToggling(true)
@@ -25,60 +68,88 @@ function EventRow({ event, onTogglePublish }) {
     }
   }
 
+  const handleDelete = async () => {
+    setDeleting(true)
+    try {
+      await onDelete(event.id)
+      setConfirmDelete(false)
+    } catch {
+      setDeleting(false)
+      setConfirmDelete(false)
+    }
+  }
+
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex flex-col sm:flex-row sm:items-center gap-4 hover:shadow-md transition-shadow">
-      {/* Image thumbnail */}
-      <div className="w-full sm:w-20 h-20 rounded-xl overflow-hidden bg-gradient-to-br from-[#1E2A4A] to-orange-500 shrink-0">
-        {event.image_url ? (
-          <img src={event.image_url} alt={event.title} className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-white text-2xl">☀</div>
-        )}
-      </div>
+    <>
+      {confirmDelete && (
+        <DeleteModal
+          event={event}
+          onConfirm={handleDelete}
+          onCancel={() => setConfirmDelete(false)}
+          deleting={deleting}
+        />
+      )}
 
-      {/* Info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex flex-wrap items-center gap-2 mb-1">
-          <h3 className="font-bold text-[#1E2A4A] text-base truncate">{event.title}</h3>
-          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-            event.is_published
-              ? 'bg-green-100 text-green-700 border border-green-300'
-              : 'bg-gray-100 text-gray-500 border border-gray-300'
-          }`}>
-            {event.is_published ? 'Published' : 'Draft'}
-          </span>
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex flex-col sm:flex-row sm:items-center gap-4 hover:shadow-md transition-shadow">
+        {/* Image thumbnail */}
+        <div className="w-full sm:w-20 h-20 rounded-xl overflow-hidden bg-gradient-to-br from-[#1E2A4A] to-orange-500 shrink-0">
+          {event.image_url ? (
+            <img src={event.image_url} alt={event.title} className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-white text-2xl">☀</div>
+          )}
         </div>
-        <p className="text-xs text-gray-500">{formatDate(event.date)}</p>
-        {event.location && <p className="text-xs text-gray-400 truncate">{event.location}</p>}
-      </div>
 
-      {/* Actions */}
-      <div className="flex flex-wrap gap-2 shrink-0">
-        <Link
-          to={`/admin/events/${event.id}/attendees`}
-          className="text-xs px-3 py-1.5 rounded-lg bg-[#1E2A4A] hover:bg-[#243357] text-white font-semibold transition-colors"
-        >
-          Attendees
-        </Link>
-        <Link
-          to={`/admin/events/${event.id}/edit`}
-          className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 hover:border-gray-400 text-gray-700 font-semibold transition-colors"
-        >
-          Edit
-        </Link>
-        <button
-          onClick={handleToggle}
-          disabled={toggling}
-          className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors disabled:opacity-60 ${
-            event.is_published
-              ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 border border-amber-300'
-              : 'bg-orange-500 text-white hover:bg-orange-600'
-          }`}
-        >
-          {toggling ? '…' : event.is_published ? 'Unpublish' : 'Publish'}
-        </button>
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
+            <h3 className="font-bold text-[#1E2A4A] text-base truncate">{event.title}</h3>
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+              event.is_published
+                ? 'bg-green-100 text-green-700 border border-green-300'
+                : 'bg-gray-100 text-gray-500 border border-gray-300'
+            }`}>
+              {event.is_published ? 'Published' : 'Draft'}
+            </span>
+          </div>
+          <p className="text-xs text-gray-500">{formatDate(event.date)}</p>
+          {event.location && <p className="text-xs text-gray-400 truncate">{event.location}</p>}
+        </div>
+
+        {/* Actions */}
+        <div className="flex flex-wrap gap-2 shrink-0">
+          <Link
+            to={`/admin/events/${event.id}/attendees`}
+            className="text-xs px-3 py-1.5 rounded-lg bg-[#1E2A4A] hover:bg-[#243357] text-white font-semibold transition-colors"
+          >
+            Attendees
+          </Link>
+          <Link
+            to={`/admin/events/${event.id}/edit`}
+            className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 hover:border-gray-400 text-gray-700 font-semibold transition-colors"
+          >
+            Edit
+          </Link>
+          <button
+            onClick={handleToggle}
+            disabled={toggling}
+            className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors disabled:opacity-60 ${
+              event.is_published
+                ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 border border-amber-300'
+                : 'bg-orange-500 text-white hover:bg-orange-600'
+            }`}
+          >
+            {toggling ? '…' : event.is_published ? 'Unpublish' : 'Publish'}
+          </button>
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="text-xs px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-semibold transition-colors"
+          >
+            Delete
+          </button>
+        </div>
       </div>
-    </div>
+    </>
   )
 }
 
@@ -103,6 +174,18 @@ export default function AdminDashboard() {
       toast.success(newPublished ? 'Event published!' : 'Event unpublished.')
     } catch {
       toast.error('Failed to update event.')
+    }
+  }
+
+  const handleDelete = async (id) => {
+    try {
+      await deleteEvent(id)
+      setEvents(prev => prev.filter(e => e.id !== id))
+      toast.success('Event deleted.')
+    } catch (err) {
+      const msg = err.response?.data?.detail ?? 'Failed to delete event.'
+      toast.error(msg)
+      throw err  // re-throw so modal can reset its deleting state
     }
   }
 
@@ -183,7 +266,12 @@ export default function AdminDashboard() {
             </h2>
             <div className="space-y-3">
               {events.map(ev => (
-                <EventRow key={ev.id} event={ev} onTogglePublish={handleTogglePublish} />
+                <EventRow
+                  key={ev.id}
+                  event={ev}
+                  onTogglePublish={handleTogglePublish}
+                  onDelete={handleDelete}
+                />
               ))}
             </div>
           </>

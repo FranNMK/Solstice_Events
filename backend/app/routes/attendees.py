@@ -148,6 +148,36 @@ async def get_attendee_status(
     return attendee
 
 
+@router.delete("/{attendee_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def unregister(
+    attendee_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Customer cancels their registration. Only allowed while status is 'registered'.
+    Blocked if status is 'pending' (badge generating) or 'checked_in'.
+    """
+    attendee = (
+        await db.execute(select(Attendee).where(Attendee.id == attendee_id))
+    ).scalar_one_or_none()
+    if not attendee:
+        raise HTTPException(status_code=404, detail="Registration not found.")
+
+    # Customers can only unregister their own records
+    if current_user["role"] == "customer" and attendee.user_id != current_user["sub"]:
+        raise HTTPException(status_code=403, detail="Access denied.")
+
+    if attendee.status in ("pending", "checked_in"):
+        raise HTTPException(
+            status_code=409,
+            detail="You cannot unregister after check-in has started.",
+        )
+
+    await db.delete(attendee)
+    await db.commit()
+
+
 @router.get("/{attendee_id}/badge")
 async def download_badge(
     attendee_id: str,

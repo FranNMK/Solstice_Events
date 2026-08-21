@@ -6,13 +6,30 @@ import { useAuth } from '../context/AuthContext'
 import Navbar from '../components/Navbar'
 import Spinner from '../components/Spinner'
 
+function EyeIcon({ open }) {
+  return open ? (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+        d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+    </svg>
+  ) : (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+        d="M13.875 18.825A10.05 10.05 0 0112 19c-4.477 0-8.268-2.943-9.542-7a9.97 9.97 0 012.002-3.462M6.228 6.228A9.969 9.969 0 0112 5c4.477 0 8.268 2.943 9.542 7a9.97 9.97 0 01-1.57 2.972M6.228 6.228L3 3m3.228 3.228l3.65 3.65M17.772 17.772l3.228 3.228m-3.228-3.228l-3.65-3.65" />
+    </svg>
+  )
+}
+
 export default function Login() {
   const { login } = useAuth()
   const navigate  = useNavigate()
 
-  const [form, setForm]       = useState({ email: '', password: '' })
-  const [loading, setLoading] = useState(false)
-  const [error, setError]     = useState('')
+  const [form, setForm]         = useState({ email: '', password: '' })
+  const [showPwd, setShowPwd]   = useState(false)
+  const [loading, setLoading]   = useState(false)
+  const [error, setError]       = useState('')
 
   const handleChange = e => setForm(f => ({ ...f, [e.target.name]: e.target.value }))
 
@@ -67,13 +84,24 @@ export default function Login() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-              <input
-                type="password" name="password" required
-                value={form.password} onChange={handleChange}
-                placeholder="••••••••"
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-300
-                  focus:outline-none focus:ring-2 focus:ring-orange-400 text-sm"
-              />
+              <div className="relative">
+                <input
+                  type={showPwd ? 'text' : 'password'} name="password" required
+                  value={form.password} onChange={handleChange}
+                  placeholder="••••••••"
+                  className="w-full px-4 py-2.5 pr-10 rounded-xl border border-gray-300
+                    focus:outline-none focus:ring-2 focus:ring-orange-400 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPwd(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  tabIndex={-1}
+                  aria-label={showPwd ? 'Hide password' : 'Show password'}
+                >
+                  <EyeIcon open={showPwd} />
+                </button>
+              </div>
             </div>
 
             <button

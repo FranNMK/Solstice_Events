@@ -114,3 +114,36 @@ async def list_event_attendees(
         .order_by(Attendee.created_at.asc())
     )
     return result.scalars().all()
+
+
+@router.delete("/admin/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_event(
+    event_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(require_role("admin")),
+):
+    """
+    Delete an event. Blocked if any attendees have registered — admin must
+    unregister/remove attendees first or cancel the event another way.
+    """
+    event = (
+        await db.execute(select(Event).where(Event.id == event_id))
+    ).scalar_one_or_none()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found.")
+
+    attendee_count = (
+        await db.execute(
+            select(Attendee).where(Attendee.event_id == event_id)
+        )
+    ).scalars().first()
+
+    if attendee_count is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete this event: attendees have already registered. "
+                   "Unpublish the event to hide it instead.",
+        )
+
+    await db.delete(event)
+    await db.commit()
