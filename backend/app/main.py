@@ -1,5 +1,16 @@
 from contextlib import asynccontextmanager
+import asyncio
+import sys
 import logging
+
+# aiomysql does not support the Windows IOCP ProactorEventLoop (Python 3.8+ default on Windows).
+# Force the SelectorEventLoop so aiomysql SSL works on Windows.
+# DeprecationWarning suppressed — can be removed once aiomysql gains native IOCP SSL support.
+if sys.platform == "win32":
+    import warnings as _w
+    with _w.catch_warnings():
+        _w.simplefilter("ignore", DeprecationWarning)
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,14 +28,10 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create all database tables on startup (idempotent — skips existing tables)
-    from app.database import Base, sync_engine
-    import app.models  # noqa: F401 — registers all ORM models with Base
-    Base.metadata.create_all(bind=sync_engine)
-    logger.info("Database tables verified / created.")
-
+    logger.info("Solstice Events API starting up.")
     # TODO Phase 4: start background badge worker thread here
     yield
+    logger.info("Solstice Events API shut down.")
 
 
 app = FastAPI(title="Solstice Events", lifespan=lifespan)
