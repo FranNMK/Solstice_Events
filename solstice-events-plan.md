@@ -1,5 +1,7 @@
 # Solstice Events — Full-Stack Build Plan
 
+<!-- Last updated after Phase 3 commit: c9b4dac -->
+
 ## Top-Level Overview
 
 Build a full-stack event registration and check-in system called **Solstice Events** from scratch in an
@@ -131,7 +133,7 @@ every subsequent phase has a stable foundation to build on.
 - Resend free tier: sender must be `onboarding@resend.dev` (no custom domain required).
 
 ### Status
-[ ] pending
+[x] done — commit 9006f97
 
 ---
 
@@ -173,7 +175,7 @@ No migration framework needed — use `Base.metadata.create_all` for initial set
 - `is_published` flag controls which events appear on the public listing.
 
 ### Status
-[ ] pending
+[x] done — commit e2ee5c6
 
 ---
 
@@ -226,7 +228,7 @@ attendees, with role-based route protection.
 - Email sending should be fire-and-forget (wrap in `asyncio.create_task`) so it does not block registration.
 
 ### Status
-[ ] pending
+[x] done — commit c9b4dac (18/18 smoke tests passing)
 
 ---
 
@@ -290,7 +292,7 @@ This is the most architecturally critical phase.
   `pending` — this prevents a second badge job being queued while the first is still processing.
 
 ### Status
-[ ] pending
+[x] done — commit f6d91a6
 
 ---
 
