@@ -16,3 +16,4 @@ httpx
 pillow
 certifi
 requests
+cloudinary

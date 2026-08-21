@@ -15,6 +15,9 @@ class Settings:
     RESEND_FROM: str = os.getenv("RESEND_FROM", "onboarding@resend.dev")
     WEBHOOK_SECRET: str = os.getenv("WEBHOOK_SECRET", "change_me")
     BADGE_BASE_URL: str = os.getenv("BADGE_BASE_URL", "http://localhost:8000")
+    # Cloudinary — set to your cloudinary://key:secret@cloud_name URL.
+    # When empty, files fall back to local static/ storage (local dev only).
+    CLOUDINARY_URL: str = os.getenv("CLOUDINARY_URL", "")
 
 
 settings = Settings()

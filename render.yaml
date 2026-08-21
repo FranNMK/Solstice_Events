@@ -27,6 +27,8 @@ services:
         sync: false          # set to your backend URL after first deploy, e.g. https://solstice-events-api.onrender.com
       - key: ALLOWED_ORIGINS
         sync: false          # set to your frontend URL, e.g. https://solstice-events.onrender.com
+      - key: CLOUDINARY_URL
+        sync: false          # set to cloudinary://api_key:api_secret@cloud_name
 
   # ── Frontend — Static Site ───────────────────────────────────────────────────
   - type: web

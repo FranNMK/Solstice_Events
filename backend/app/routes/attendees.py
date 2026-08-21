@@ -185,9 +185,16 @@ async def download_badge(
     current_user: dict = Depends(get_current_user),
 ):
     """
-    Stream the badge PDF. Only available once status is checked_in.
+    Serve the badge PDF. Only available once status is checked_in.
     Customers can only download their own badge; admins can download any.
+
+    When badge_pdf_url is a Cloudinary CDN URL (https://...) the endpoint
+    issues a 302 redirect so the browser downloads directly from Cloudinary.
+    When it is a local /static/... path (local dev) it streams the file.
     """
+    import os
+    from fastapi.responses import RedirectResponse
+
     attendee = (
         await db.execute(select(Attendee).where(Attendee.id == attendee_id))
     ).scalar_one_or_none()
@@ -203,9 +210,13 @@ async def download_badge(
             detail="Badge not available yet. Check in first.",
         )
 
-    # badge_pdf_url is stored as a relative URL path like /static/badges/{id}.pdf
-    # Resolve to the actual file path
-    import os
+    badge_url: str = attendee.badge_pdf_url
+
+    # Cloudinary / any external URL → redirect the browser directly to CDN
+    if badge_url.startswith("http://") or badge_url.startswith("https://"):
+        return RedirectResponse(url=badge_url, status_code=302)
+
+    # Local /static/... path (local dev fallback) → stream from disk
     file_path = os.path.join(
         os.path.dirname(__file__), "..", "static", "badges", f"{attendee_id}.pdf"
     )
