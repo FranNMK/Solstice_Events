@@ -339,7 +339,7 @@ forms, and the auth context wiring that gates the rest of the app.
 - `VITE_API_URL=http://localhost:8000` goes in `frontend/.env`.
 
 ### Status
-[ ] pending
+[x] done — phases 5 & 6 implementation
 
 ---
 
@@ -380,7 +380,7 @@ show badge download after check-in (via polling).
 - Badge PDF URL: use the backend route `GET /attendees/{id}/badge` which streams the file.
 
 ### Status
-[ ] pending
+[x] done — phases 5 & 6 implementation
 
 ---
 
