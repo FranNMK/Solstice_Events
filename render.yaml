@@ -1,0 +1,46 @@
+services:
+  # ── Backend — FastAPI Web Service ────────────────────────────────────────────
+  - type: web
+    name: solstice-events-api
+    runtime: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: TIDB_URL
+        sync: false          # set manually in Render dashboard
+      - key: JWT_SECRET
+        generateValue: true  # Render auto-generates a secure random value
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "60"
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        value: onboarding@resend.dev
+      - key: WEBHOOK_SECRET
+        generateValue: true
+      - key: BADGE_BASE_URL
+        sync: false          # set to your backend URL after first deploy, e.g. https://solstice-events-api.onrender.com
+      - key: ALLOWED_ORIGINS
+        sync: false          # set to your frontend URL, e.g. https://solstice-events.onrender.com
+
+  # ── Frontend — Static Site ───────────────────────────────────────────────────
+  - type: web
+    name: solstice-events
+    runtime: static
+    region: oregon
+    plan: free
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html   # SPA fallback — all routes serve index.html
+    envVars:
+      - key: VITE_API_URL
+        sync: false                # set to your backend URL, e.g. https://solstice-events-api.onrender.com

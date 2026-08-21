@@ -44,9 +44,19 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Solstice Events", lifespan=lifespan)
 
+# In production, ALLOWED_ORIGINS should be set to the frontend URL,
+# e.g. "https://solstice-events.onrender.com".
+# Falls back to "*" for local development when the env var is not set.
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "*")
+_allowed_origins: list[str] = (
+    [o.strip() for o in _raw_origins.split(",") if o.strip()]
+    if _raw_origins != "*"
+    else ["*"]
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

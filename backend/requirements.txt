@@ -14,3 +14,5 @@ resend
 python-multipart
 httpx
 pillow
+certifi
+requests
