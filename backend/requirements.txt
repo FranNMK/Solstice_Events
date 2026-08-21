@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+aiomysql
+pymysql
+pydantic[email]
+
+python-dotenv
+python-jose[cryptography]
+passlib[bcrypt]
+qrcode[pil]
+reportlab
+resend
+python-multipart
+httpx
+pillow
