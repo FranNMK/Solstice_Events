@@ -2,19 +2,17 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider, useAuth } from './context/AuthContext'
 
-// ── Real page components ─────────────────────────────────────────────────────
-import Landing    from './pages/Landing'
-import Events     from './pages/Events'
-import Register   from './pages/Register'
-import Login      from './pages/Login'
-import SignUp     from './pages/SignUp'
-import Dashboard  from './pages/Dashboard'
-
-// ── Placeholder pages (replaced in Phase 7) ──────────────────────────────────
-const AdminDashboard = () => <div className="p-8 text-center"><h1 className="text-2xl font-bold text-[#1E2A4A]">Admin Dashboard — coming in Phase 7</h1></div>
-const EventForm      = () => <div className="p-8 text-center"><h1 className="text-2xl font-bold text-[#1E2A4A]">Event Form — coming in Phase 7</h1></div>
-const AttendeeList   = () => <div className="p-8 text-center"><h1 className="text-2xl font-bold text-[#1E2A4A]">Attendee List — coming in Phase 7</h1></div>
-const ScanPage       = () => <div className="p-8 text-center"><h1 className="text-2xl font-bold text-[#1E2A4A]">Scan Page — coming in Phase 7</h1></div>
+// ── Page components ──────────────────────────────────────────────────────────
+import Landing        from './pages/Landing'
+import Events         from './pages/Events'
+import Register       from './pages/Register'
+import Login          from './pages/Login'
+import SignUp         from './pages/SignUp'
+import Dashboard      from './pages/Dashboard'
+import AdminDashboard from './pages/admin/AdminDashboard'
+import EventForm      from './pages/admin/EventForm'
+import AttendeeList   from './pages/admin/AttendeeList'
+import ScanPage       from './pages/admin/ScanPage'
 
 const Unauthorized = () => (
   <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-8 text-center">

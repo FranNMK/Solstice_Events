@@ -430,7 +430,7 @@ real-time QR scan + check-in page with status polling.
 - Admin routes are protected with `<RequireAuth role="admin">` — a customer token gets redirected.
 
 ### Status
-[ ] pending
+[x] done — commit this session
 
 ---
 
@@ -467,7 +467,7 @@ page transitions, the event countdown, and the seed script. Verify the full demo
 - Keep the `README.md` concise and focused on running the app locally.
 
 ### Status
-[ ] pending
+[x] done — commit this session
 
 ---
 
