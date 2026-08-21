@@ -29,8 +29,16 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Solstice Events API starting up.")
-    # TODO Phase 4: start background badge worker thread here
+
+    # Start the background badge worker as a daemon thread
+    import threading
+    from app.services.worker import run_worker
+    worker_thread = threading.Thread(target=run_worker, name="badge-worker", daemon=True)
+    worker_thread.start()
+    logger.info("Badge worker thread started.")
+
     yield
+
     logger.info("Solstice Events API shut down.")
 
 
