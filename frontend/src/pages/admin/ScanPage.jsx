@@ -148,30 +148,48 @@ export default function ScanPage() {
   /* ── Camera scanner ──────────────────────────────────────────────────────── */
   const startCamera = useCallback(async () => {
     setCameraError('')
+    setCameraActive(false)
+
     try {
+      // Step 1 — explicitly request permission; this triggers the browser dialog.
+      // We stop this stream immediately — ZXing will open its own stream.
+      const permStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+      permStream.getTracks().forEach(t => t.stop())
+    } catch (err) {
+      const isDenied = err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError'
+      setCameraError(
+        isDenied
+          ? 'Camera permission was denied. Please allow camera access in your browser settings and try again.'
+          : 'Camera not available on this device. Use manual input below.'
+      )
+      return
+    }
+
+    try {
+      // Step 2 — load ZXing and start decoding
       const { BrowserQRCodeReader } = await import('@zxing/library')
       const reader = new BrowserQRCodeReader()
       readerRef.current = reader
 
-      // Get available video devices
+      // Prefer back/environment camera on mobile; fall back to any device
       const devices = await BrowserQRCodeReader.listVideoInputDevices()
-      const deviceId = devices.length > 0 ? devices[devices.length - 1].deviceId : undefined
+      const backCamera = devices.find(d => /back|rear|environment/i.test(d.label))
+      const deviceId = (backCamera ?? devices[devices.length - 1])?.deviceId ?? undefined
 
       setCameraActive(true)
       scanningRef.current = true
 
-      reader.decodeFromVideoDevice(deviceId, videoRef.current, (result, err) => {
+      reader.decodeFromVideoDevice(deviceId, videoRef.current, (result) => {
         if (!scanningRef.current) return
         if (result) {
-          const val = result.getText()
-          handleQrValue(val)
+          handleQrValue(result.getText())
           // Brief pause to avoid rapid re-scans of the same code
           scanningRef.current = false
           setTimeout(() => { scanningRef.current = true }, 2500)
         }
       })
-    } catch (err) {
-      setCameraError('Camera not available or permission denied. Use manual input below.')
+    } catch {
+      setCameraError('Failed to start scanner. Use manual input below.')
       setCameraActive(false)
     }
   }, [handleQrValue])
@@ -253,8 +271,9 @@ export default function ScanPage() {
           {!cameraActive && !cameraError && (
             <div className="p-10 text-center text-gray-400">
               <span className="text-5xl block mb-2">📷</span>
-              <p className="text-sm">Click "Start Camera" to begin scanning</p>
-              <p className="text-xs mt-1">Requires camera permission and HTTPS or localhost</p>
+              <p className="text-sm font-medium text-gray-600">Click "Start Camera" to begin scanning</p>
+              <p className="text-xs mt-1">Your browser will ask for camera permission — click <strong>Allow</strong></p>
+              <p className="text-xs mt-0.5">Requires HTTPS or localhost</p>
             </div>
           )}
         </div>
