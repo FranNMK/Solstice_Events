@@ -150,46 +150,52 @@ export default function ScanPage() {
     setCameraError('')
     setCameraActive(false)
 
+    // Step 1 — request permission explicitly so the browser dialog fires immediately
+    let permStream
     try {
-      // Step 1 — explicitly request permission; this triggers the browser dialog.
-      // We stop this stream immediately — ZXing will open its own stream.
-      const permStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-      permStream.getTracks().forEach(t => t.stop())
+      permStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+      })
     } catch (err) {
       const isDenied = err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError'
       setCameraError(
         isDenied
-          ? 'Camera permission was denied. Please allow camera access in your browser settings and try again.'
-          : 'Camera not available on this device. Use manual input below.'
+          ? 'Camera permission was denied. Allow camera access in your browser settings, then try again.'
+          : 'No camera found on this device. Use manual entry below.'
       )
       return
     }
 
+    // Step 2 — hand the live stream directly to the video element so ZXing
+    // can decode from it without opening a second stream (avoids device-busy errors)
     try {
-      // Step 2 — load ZXing and start decoding
       const { BrowserQRCodeReader } = await import('@zxing/library')
       const reader = new BrowserQRCodeReader()
       readerRef.current = reader
 
-      // Prefer back/environment camera on mobile; fall back to any device
-      const devices = await BrowserQRCodeReader.listVideoInputDevices()
-      const backCamera = devices.find(d => /back|rear|environment/i.test(d.label))
-      const deviceId = (backCamera ?? devices[devices.length - 1])?.deviceId ?? undefined
+      // Attach the already-open stream to the video element
+      const video = videoRef.current
+      video.srcObject = permStream
+      await video.play()
 
       setCameraActive(true)
       scanningRef.current = true
 
-      reader.decodeFromVideoDevice(deviceId, videoRef.current, (result) => {
+      // Decode frames continuously from the live video element
+      reader.decodeFromStream(permStream, video, (result) => {
         if (!scanningRef.current) return
         if (result) {
           handleQrValue(result.getText())
-          // Brief pause to avoid rapid re-scans of the same code
+          // Brief pause to avoid re-scanning the same code repeatedly
           scanningRef.current = false
           setTimeout(() => { scanningRef.current = true }, 2500)
         }
       })
-    } catch {
-      setCameraError('Failed to start scanner. Use manual input below.')
+    } catch (err) {
+      // Stop the permission stream if ZXing failed to start
+      permStream?.getTracks().forEach(t => t.stop())
+      console.error('Scanner start error:', err)
+      setCameraError('Failed to start scanner. Use manual entry below.')
       setCameraActive(false)
     }
   }, [handleQrValue])
@@ -199,6 +205,11 @@ export default function ScanPage() {
     if (readerRef.current) {
       try { readerRef.current.reset() } catch { /* ignore */ }
       readerRef.current = null
+    }
+    // Stop any live tracks still attached to the video element
+    if (videoRef.current?.srcObject) {
+      videoRef.current.srcObject.getTracks().forEach(t => t.stop())
+      videoRef.current.srcObject = null
     }
     setCameraActive(false)
   }, [])
