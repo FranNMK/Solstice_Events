@@ -20,7 +20,7 @@ services:
       - key: RESEND_API_KEY
         sync: false
       - key: RESEND_FROM
-        value: onboarding@resend.dev
+        value: noreply@test.kigumotvc.ac.ke
       - key: WEBHOOK_SECRET
         generateValue: true
       - key: BADGE_BASE_URL
