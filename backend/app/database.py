@@ -82,26 +82,43 @@ async def get_db():
 
 # ---------------------------------------------------------------------------
 # Sync engine — used by the background worker thread (Phase 4)
-# pymysql on Linux does not honour ssl_ca in the URL query string reliably.
-# Pass SSL options as a dict via connect_args instead, and strip ssl_ca from
-# the URL to avoid pymysql trying to open a path that doesn't exist on Render.
+# Lazy-initialised: the engine is created on first call to _get_sync_engine()
+# rather than at import time. This means a bad TIDB_URL or SSL problem causes
+# a logged error inside the worker instead of a silent import-time crash that
+# kills the whole thread before it prints a single log line.
 # ---------------------------------------------------------------------------
 _sync_url_base = _strip_ssl_params(settings.TIDB_URL).replace(
     "mysql+aiomysql://", "mysql+pymysql://"
 )
 
-sync_engine = create_engine(
-    _sync_url_base,
-    echo=False,
-    pool_pre_ping=True,
-    pool_recycle=300,
-    connect_args={
-        "connect_timeout": 30,
-        "ssl": {"ca": certifi.where()},
-    },
-)
+_sync_engine = None
+_sync_sessionmaker = None
 
-SyncSessionLocal = sessionmaker(bind=sync_engine, autoflush=False, autocommit=False)
+
+def _get_sync_engine():
+    """Return (creating once) the synchronous SQLAlchemy engine for the worker."""
+    global _sync_engine, _sync_sessionmaker
+    if _sync_engine is None:
+        _sync_engine = create_engine(
+            _sync_url_base,
+            echo=False,
+            pool_pre_ping=True,
+            pool_recycle=300,
+            connect_args={
+                "connect_timeout": 30,
+                "ssl": {"ca": certifi.where()},
+            },
+        )
+        _sync_sessionmaker = sessionmaker(
+            bind=_sync_engine, autoflush=False, autocommit=False
+        )
+    return _sync_engine, _sync_sessionmaker
+
+
+def SyncSessionLocal():
+    """Return a new synchronous Session (mirrors the old sessionmaker call pattern)."""
+    _, sm = _get_sync_engine()
+    return sm()
 
 
 def get_sync_db():

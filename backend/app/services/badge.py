@@ -5,7 +5,8 @@ Produces a card-style A6 badge PDF containing:
   - Attendee name (large, bold)
   - Profession (subtitle)
   - Event name + formatted date
-  - QR code image (embedded from local static/qrcodes/ temp copy)
+  - QR code image (generated in-memory — NOT read from disk so Render's
+    ephemeral filesystem cannot cause a missing-file failure)
   - Solstice Events branding
 
 Storage strategy (in priority order):
@@ -14,11 +15,14 @@ Storage strategy (in priority order):
   2. Local static/badges/ — fallback for local dev; returns /static/... path.
 """
 
+import io
 import logging
 import os
 import tempfile
 from datetime import datetime
 
+import qrcode
+from qrcode.image.pil import PilImage
 from reportlab.lib.pagesizes import A6
 from reportlab.lib.units import mm
 from reportlab.lib.colors import HexColor, white
@@ -37,7 +41,42 @@ GRAY   = HexColor("#6B7280")
 
 _STATIC_DIR = os.path.join(os.path.dirname(__file__), "..", "static")
 _BADGES_DIR = os.path.join(_STATIC_DIR, "badges")
-_QR_DIR     = os.path.join(_STATIC_DIR, "qrcodes")
+
+
+def _build_qr_image_reader(qr_code_id: str) -> ImageReader | None:
+    """
+    Generate the QR PNG in-memory and return an ImageReader for reportlab.
+    Falls back to reading the local file if it happens to exist (local dev).
+    Never fails — returns None if both paths fail, badge is drawn without QR.
+    """
+    # Prefer in-memory generation (works on Render with ephemeral disk)
+    try:
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_M,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(qr_code_id)
+        qr.make(fit=True)
+        img: PilImage = qr.make_image(fill_color="black", back_color="white")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        return ImageReader(buf)
+    except Exception as exc:
+        logger.warning("In-memory QR generation failed, trying local file: %s", exc)
+
+    # Fallback: local file (local dev)
+    local_qr = os.path.join(os.path.dirname(__file__), "..", "static", "qrcodes",
+                             f"{qr_code_id}.png")
+    if os.path.exists(local_qr):
+        try:
+            return ImageReader(local_qr)
+        except Exception as exc:
+            logger.warning("Could not load local QR file: %s", exc)
+
+    return None
 
 
 def _draw_badge(file_path: str, name: str, profession: str,
@@ -85,15 +124,15 @@ def _draw_badge(file_path: str, name: str, profession: str,
     c.setLineWidth(0.5)
     c.line(8 * mm, y_div, width - 8 * mm, y_div)
 
-    # QR Code (reads from the locally-saved PNG copy written by qr.py)
+    # QR Code — generated in-memory so no local-disk dependency on Render
     qr_size = 30 * mm
     qr_x    = (width - qr_size) / 2
     y_qr    = y_div - 5 * mm - qr_size
 
-    qr_path = os.path.join(_QR_DIR, f"{qr_code_id}.png")
-    if os.path.exists(qr_path):
+    qr_reader = _build_qr_image_reader(qr_code_id)
+    if qr_reader:
         try:
-            c.drawImage(ImageReader(qr_path), qr_x, y_qr,
+            c.drawImage(qr_reader, qr_x, y_qr,
                         width=qr_size, height=qr_size, preserveAspectRatio=True)
         except Exception as exc:
             logger.warning("Could not embed QR image: %s", exc)

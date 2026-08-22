@@ -20,7 +20,6 @@ import hashlib
 import hmac
 import json
 import logging
-import random
 import time
 from datetime import datetime, timezone
 
@@ -84,12 +83,7 @@ def _process_job(session: Session, job: BadgeJob) -> None:
     session.commit()
     logger.info("[worker] Processing job=%s attendee=%s", job_id, job.attendee_id)
 
-    # 2. Simulated delay (printer latency)
-    delay = random.randint(3, 5)
-    logger.info("[worker] Simulating %ds badge generation delay...", delay)
-    time.sleep(delay)
-
-    # 3. Load attendee + event
+    # 2. Load attendee + event
     attendee: Attendee = session.get(Attendee, job.attendee_id)
     if not attendee:
         logger.error(
