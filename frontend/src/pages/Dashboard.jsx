@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import QRCode from 'react-qr-code'
 import toast from 'react-hot-toast'
-import { getMyRegistrations, getAttendeeStatus, getBadgeUrl, unregisterAttendee } from '../api/attendees'
+import { getMyRegistrations, getAttendeeStatus, resolveBadgeUrl, unregisterAttendee } from '../api/attendees'
 import { useAuth } from '../context/AuthContext'
 import Navbar from '../components/Navbar'
 import StatusPill from '../components/StatusPill'
@@ -52,14 +52,14 @@ function UnregisterModal({ eventTitle, onConfirm, onCancel, loading }) {
 
 /* ── Single registration card ─────────────────────────────────────────────── */
 function RegistrationCard({ reg, onStatusUpdate, onUnregister }) {
-  const [showQR, setShowQR]             = useState(false)
-  const [confirmUnreg, setConfirmUnreg] = useState(false)
+  const [showQR, setShowQR]               = useState(false)
+  const [confirmUnreg, setConfirmUnreg]   = useState(false)
   const [unregistering, setUnregistering] = useState(false)
+  const [badgeLoading, setBadgeLoading]   = useState(false)
 
   const isPending    = reg.status === 'pending'
   const isCheckedIn  = reg.status === 'checked_in'
   const isRegistered = reg.status === 'registered'
-  const badgeUrl     = getBadgeUrl(reg.id)
 
   // Poll status every 3 s while pending
   const pollStatus = useCallback(async () => {
@@ -80,9 +80,38 @@ function RegistrationCard({ reg, onStatusUpdate, onUnregister }) {
     weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
   })
 
-  const handlePrint = () => {
-    window.open(badgeUrl, '_blank')
-    setTimeout(() => window.print(), 800)
+  // Resolve the badge URL (CDN direct or blob fallback) then trigger download
+  const handleDownload = async () => {
+    setBadgeLoading(true)
+    try {
+      const { url, isBlob } = await resolveBadgeUrl(reg.id, reg.badge_pdf_url)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `badge-${reg.name.replace(/\s+/g, '_')}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      if (isBlob) URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Failed to download badge. Please try again.')
+    } finally {
+      setBadgeLoading(false)
+    }
+  }
+
+  // Resolve the badge URL then open in a new tab for printing
+  const handlePrint = async () => {
+    setBadgeLoading(true)
+    try {
+      const { url, isBlob } = await resolveBadgeUrl(reg.id, reg.badge_pdf_url)
+      const win = window.open(url, '_blank')
+      if (isBlob) setTimeout(() => URL.revokeObjectURL(url), 30_000)
+      if (!win) toast('Allow pop-ups to print the badge.', { icon: 'ℹ️' })
+    } catch {
+      toast.error('Failed to open badge for printing. Please try again.')
+    } finally {
+      setBadgeLoading(false)
+    }
   }
 
   const handleUnregister = async () => {
@@ -157,19 +186,24 @@ function RegistrationCard({ reg, onStatusUpdate, onUnregister }) {
             {/* Badge actions — only when checked in */}
             {isCheckedIn && (
               <>
-                <a
-                  href={badgeUrl}
-                  download
+                <button
+                  onClick={handleDownload}
+                  disabled={badgeLoading}
                   className="text-xs px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700
-                    text-white font-semibold transition-colors"
+                    disabled:opacity-60 text-white font-semibold transition-colors
+                    flex items-center gap-1.5"
                 >
+                  {badgeLoading && <Spinner size="sm" />}
                   Download Badge
-                </a>
+                </button>
                 <button
                   onClick={handlePrint}
+                  disabled={badgeLoading}
                   className="text-xs px-3 py-1.5 rounded-lg bg-[#1E2A4A] hover:bg-[#243357]
-                    text-white font-semibold transition-colors"
+                    disabled:opacity-60 text-white font-semibold transition-colors
+                    flex items-center gap-1.5"
                 >
+                  {badgeLoading && <Spinner size="sm" />}
                   Print Badge
                 </button>
               </>
