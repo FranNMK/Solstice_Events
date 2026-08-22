@@ -37,15 +37,33 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     logger.info("Solstice Events API starting up.")
 
-    # Start the background badge worker as a daemon thread
     import threading
     from app.services.worker import run_worker
-    worker_thread = threading.Thread(target=run_worker, name="badge-worker", daemon=True)
-    worker_thread.start()
-    logger.info("Badge worker thread started.")
+
+    def _start_worker() -> threading.Thread:
+        t = threading.Thread(target=run_worker, name="badge-worker", daemon=True)
+        t.start()
+        logger.info("Badge worker thread started (id=%s).", t.ident)
+        return t
+
+    worker_thread = _start_worker()
+
+    async def _watchdog():
+        """Restart the worker thread if it dies unexpectedly."""
+        nonlocal worker_thread
+        while True:
+            await asyncio.sleep(30)
+            if not worker_thread.is_alive():
+                logger.warning(
+                    "Badge worker thread is dead — restarting.",
+                )
+                worker_thread = _start_worker()
+
+    watchdog_task = asyncio.create_task(_watchdog())
 
     yield
 
+    watchdog_task.cancel()
     logger.info("Solstice Events API shut down.")
 
 

@@ -42,6 +42,30 @@ def _get_session() -> Session:
     return SyncSessionLocal()
 
 
+def _recover_stuck_jobs() -> None:
+    """
+    On startup: reset any jobs stuck in 'processing' back to 'queued'.
+    This handles the case where the worker crashed mid-job on the previous run.
+    """
+    session = _get_session()
+    try:
+        stuck = session.execute(
+            select(BadgeJob).where(BadgeJob.status == "processing")
+        ).scalars().all()
+        if stuck:
+            logger.warning(
+                "[worker] Recovering %d stuck job(s) from 'processing' → 'queued'",
+                len(stuck),
+            )
+            for job in stuck:
+                job.status = "queued"
+            session.commit()
+    except Exception as exc:
+        logger.error("[worker] Failed to recover stuck jobs: %s", exc, exc_info=True)
+    finally:
+        session.close()
+
+
 def _sign_payload(body: str) -> str:
     """Compute HMAC-SHA256 signature over the raw JSON body string."""
     return hmac.new(
@@ -68,7 +92,10 @@ def _process_job(session: Session, job: BadgeJob) -> None:
     # 3. Load attendee + event
     attendee: Attendee = session.get(Attendee, job.attendee_id)
     if not attendee:
-        logger.error("[worker] Attendee %s not found, marking job failed", job.attendee_id)
+        logger.error(
+            "[worker] Attendee %s not found, marking job failed", job.attendee_id,
+            exc_info=True,
+        )
         job.status = "failed"
         job.completed_at = datetime.now(timezone.utc)
         session.commit()
@@ -76,7 +103,10 @@ def _process_job(session: Session, job: BadgeJob) -> None:
 
     event: Event = session.get(Event, attendee.event_id)
     if not event:
-        logger.error("[worker] Event %s not found, marking job failed", attendee.event_id)
+        logger.error(
+            "[worker] Event %s not found, marking job failed", attendee.event_id,
+            exc_info=True,
+        )
         job.status = "failed"
         job.completed_at = datetime.now(timezone.utc)
         session.commit()
@@ -93,7 +123,10 @@ def _process_job(session: Session, job: BadgeJob) -> None:
             qr_code_id=attendee.qr_code_id,
         )
     except Exception as exc:
-        logger.error("[worker] Badge PDF generation failed for job=%s: %s", job_id, exc)
+        logger.error(
+            "[worker] Badge PDF generation failed for job=%s: %s", job_id, exc,
+            exc_info=True,
+        )
         job.status = "failed"
         job.completed_at = datetime.now(timezone.utc)
         session.commit()
@@ -126,8 +159,10 @@ def _process_job(session: Session, job: BadgeJob) -> None:
         else:
             logger.error("[worker] Webhook returned HTTP %s: %s", resp.status_code, resp.text[:200])
     except Exception as exc:
-        logger.error("[worker] Webhook POST failed for job=%s: %s", job_id, exc)
-        # Don't mark failed — the DB was already updated by the webhook or we retry next cycle
+        logger.error(
+            "[worker] Webhook POST failed for job=%s: %s", job_id, exc, exc_info=True,
+        )
+    # Don't mark failed — the DB was already updated by the webhook or we retry next cycle
 
     # 7. Mark job completed
     job.status = "completed"
@@ -142,6 +177,7 @@ def run_worker() -> None:
     Polls for queued jobs every 2 seconds.
     """
     logger.info("[worker] Badge worker started.")
+    _recover_stuck_jobs()
     while not _STOP:
         session = _get_session()
         try:
@@ -159,7 +195,9 @@ def run_worker() -> None:
                 time.sleep(2)  # Nothing to do — poll again shortly
 
         except Exception as exc:
-            logger.error("[worker] Unexpected error in worker loop: %s", exc)
+            logger.error(
+                "[worker] Unexpected error in worker loop: %s", exc, exc_info=True,
+            )
             time.sleep(2)
         finally:
             session.close()

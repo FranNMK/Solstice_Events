@@ -82,16 +82,23 @@ async def get_db():
 
 # ---------------------------------------------------------------------------
 # Sync engine — used by the background worker thread (Phase 4)
-# pymysql handles ssl_ca in the URL correctly via its own SSL logic.
+# pymysql on Linux does not honour ssl_ca in the URL query string reliably.
+# Pass SSL options as a dict via connect_args instead, and strip ssl_ca from
+# the URL to avoid pymysql trying to open a path that doesn't exist on Render.
 # ---------------------------------------------------------------------------
-_sync_url = _fix_ssl_ca(settings.TIDB_URL).replace("mysql+aiomysql://", "mysql+pymysql://")
+_sync_url_base = _strip_ssl_params(settings.TIDB_URL).replace(
+    "mysql+aiomysql://", "mysql+pymysql://"
+)
 
 sync_engine = create_engine(
-    _sync_url,
+    _sync_url_base,
     echo=False,
     pool_pre_ping=True,
     pool_recycle=300,
-    connect_args={"connect_timeout": 30},
+    connect_args={
+        "connect_timeout": 30,
+        "ssl": {"ca": certifi.where()},
+    },
 )
 
 SyncSessionLocal = sessionmaker(bind=sync_engine, autoflush=False, autocommit=False)
