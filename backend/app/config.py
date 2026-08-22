@@ -18,6 +18,11 @@ class Settings:
     # Cloudinary — set to your cloudinary://key:secret@cloud_name URL.
     # When empty, files fall back to local static/ storage (local dev only).
     CLOUDINARY_URL: str = os.getenv("CLOUDINARY_URL", "")
+    # Resend free-tier workaround: when set, ALL confirmation emails are
+    # redirected to this address instead of the registrant's address.
+    # Use your own verified Resend email during testing/staging.
+    # Leave empty (or unset) in production once you have a verified domain.
+    RESEND_TEST_TO: str = os.getenv("RESEND_TEST_TO", "")
 
 
 settings = Settings()

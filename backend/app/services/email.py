@@ -99,13 +99,24 @@ def send_confirmation_email(
     try:
         import resend
         resend.api_key = settings.RESEND_API_KEY
+
+        # Resend free-tier: can only send to the account owner's address
+        # unless a custom domain is verified. RESEND_TEST_TO redirects all
+        # emails to your verified address so delivery still works in demos.
+        actual_to = settings.RESEND_TEST_TO if settings.RESEND_TEST_TO else to
+        if settings.RESEND_TEST_TO and settings.RESEND_TEST_TO != to:
+            logger.info(
+                "RESEND_TEST_TO override active — redirecting email from %s to %s",
+                to, actual_to,
+            )
+
         resend.Emails.send({
             "from": settings.RESEND_FROM,
-            "to": [to],
+            "to": [actual_to],
             "subject": subject,
             "html": html_body,
         })
-        logger.info("Confirmation email sent to %s for event '%s'", to, event_title)
+        logger.info("Confirmation email sent to %s for event '%s'", actual_to, event_title)
     except Exception as exc:
         # Never let email failure crash registration
         logger.error("Failed to send confirmation email to %s: %s", to, exc)
