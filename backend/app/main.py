@@ -2,6 +2,8 @@ from contextlib import asynccontextmanager
 import asyncio
 import sys
 import logging
+import time
+import uuid
 
 # aiomysql does not support the Windows IOCP ProactorEventLoop (Python 3.8+ default on Windows).
 # Force the SelectorEventLoop so aiomysql SSL works on Windows.
@@ -23,6 +25,11 @@ from app.routes.attendees import router as attendees_router
 from app.routes.checkin import router as checkin_router
 from app.routes.webhooks import router as webhooks_router
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
 logger = logging.getLogger(__name__)
 
 
@@ -43,6 +50,47 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Solstice Events", lifespan=lifespan)
+
+
+# ── Request logging middleware ────────────────────────────────────────────────
+# Logs every inbound request and its response: method, path, status, latency.
+# Each request gets a short request-id so correlated log lines are easy to find.
+@app.middleware("http")
+async def log_requests(request, call_next):
+    req_id = str(uuid.uuid4())[:8]
+    start = time.perf_counter()
+    logger.info(
+        "[%s] → %s %s",
+        req_id,
+        request.method,
+        request.url.path,
+    )
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        elapsed = (time.perf_counter() - start) * 1000
+        logger.error(
+            "[%s] ✗ %s %s — UNHANDLED EXCEPTION after %.0fms: %s",
+            req_id,
+            request.method,
+            request.url.path,
+            elapsed,
+            exc,
+            exc_info=True,
+        )
+        raise
+    elapsed = (time.perf_counter() - start) * 1000
+    level = logging.WARNING if response.status_code >= 400 else logging.INFO
+    logger.log(
+        level,
+        "[%s] ← %s %s %d (%.0fms)",
+        req_id,
+        request.method,
+        request.url.path,
+        response.status_code,
+        elapsed,
+    )
+    return response
 
 # In production, ALLOWED_ORIGINS should be set to the frontend URL,
 # e.g. "https://solstice-events.onrender.com".
