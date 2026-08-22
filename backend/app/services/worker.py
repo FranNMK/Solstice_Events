@@ -16,18 +16,13 @@ Using the sync SQLAlchemy engine + requests (not aiohttp) because this runs
 entirely outside the async event loop in its own thread.
 """
 
-import hashlib
-import hmac
-import json
 import logging
 import time
 from datetime import datetime, timezone
 
-import requests
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.database import SyncSessionLocal
 from app.models import Attendee, BadgeJob, Event
 from app.services.badge import generate_badge_pdf
@@ -126,43 +121,21 @@ def _process_job(session: Session, job: BadgeJob) -> None:
         session.commit()
         return
 
-    # 5. Build signed webhook payload
-    payload = {
-        "job_id": job_id,
-        "attendee_id": attendee.id,
-        "badge_pdf_url": url_path,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-    body_str = json.dumps(payload, separators=(",", ":"))
-    signature = _sign_payload(body_str)
+    # 5. Update attendee directly in the same DB session.
+    # The original design used an HTTP loopback webhook, but on Render the
+    # worker thread cannot POST to the service's own public URL reliably —
+    # Render routes external traffic through a proxy and the loopback silently
+    # fails, leaving badge_pdf_url = NULL and the attendee stuck in 'pending'.
+    # Updating via the already-open sync session is simpler and guaranteed.
+    attendee.status = "checked_in"
+    attendee.badge_pdf_url = url_path
 
-    # 6. Call the webhook endpoint (same process, loopback)
-    webhook_url = f"{settings.BADGE_BASE_URL}/webhooks/badge-complete"
-    try:
-        resp = requests.post(
-            webhook_url,
-            data=body_str,
-            headers={
-                "Content-Type": "application/json",
-                "X-Signature": signature,
-            },
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            logger.info("[worker] Webhook delivered for job=%s", job_id)
-        else:
-            logger.error("[worker] Webhook returned HTTP %s: %s", resp.status_code, resp.text[:200])
-    except Exception as exc:
-        logger.error(
-            "[worker] Webhook POST failed for job=%s: %s", job_id, exc, exc_info=True,
-        )
-    # Don't mark failed — the DB was already updated by the webhook or we retry next cycle
-
-    # 7. Mark job completed
+    # 6. Mark job completed in the same commit
     job.status = "completed"
     job.completed_at = datetime.now(timezone.utc)
     session.commit()
-    logger.info("[worker] Job=%s completed", job_id)
+    logger.info("[worker] Job=%s completed — attendee=%s checked_in badge=%s",
+                job_id, attendee.id, url_path)
 
 
 def run_worker() -> None:
