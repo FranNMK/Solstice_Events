@@ -186,11 +186,10 @@ async def download_badge(
 ):
     """
     Serve the badge PDF. Only available once status is checked_in.
-    Customers can only download their own badge; admins can download any.
 
-    When badge_pdf_url is a Cloudinary CDN URL (https://...) the endpoint
-    issues a 302 redirect so the browser downloads directly from Cloudinary.
-    When it is a local /static/... path (local dev) it streams the file.
+    Cloudinary raw assets may be restricted by account security settings.
+    We generate a short-lived signed URL (1 hour) so the download always
+    works regardless of the account's default delivery policy.
     """
     import os
     from fastapi.responses import RedirectResponse
@@ -212,7 +211,19 @@ async def download_badge(
 
     badge_url: str = attendee.badge_pdf_url
 
-    # Cloudinary / any external URL → redirect the browser directly to CDN
+    # Cloudinary URL → generate a signed URL so it bypasses account access restrictions
+    if "cloudinary.com" in badge_url:
+        try:
+            from app.services.cloudinary_storage import make_signed_url
+            signed = make_signed_url(attendee_id)
+            if signed:
+                return RedirectResponse(url=signed, status_code=302)
+        except Exception as exc:
+            logger.warning("Could not generate signed Cloudinary URL: %s", exc)
+        # Fallback: redirect to the stored URL as-is
+        return RedirectResponse(url=badge_url, status_code=302)
+
+    # Non-Cloudinary external URL (future CDN) → redirect directly
     if badge_url.startswith("http://") or badge_url.startswith("https://"):
         return RedirectResponse(url=badge_url, status_code=302)
 

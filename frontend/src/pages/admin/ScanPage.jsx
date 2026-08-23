@@ -1,10 +1,42 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import toast from 'react-hot-toast'
-import { checkIn, getAttendeeStatus } from '../../api/attendees'
+import { checkIn, getAttendeeStatus, resolveBadgeUrl } from '../../api/attendees'
 import Navbar from '../../components/Navbar'
 import StatusPill from '../../components/StatusPill'
 import Spinner from '../../components/Spinner'
 import usePolling from '../../hooks/usePolling'
+
+/* ── Badge download button for scan results ────────────────────────────────── */
+function ScanBadgeButton({ attendeeId }) {
+  const [loading, setLoading] = useState(false)
+  const handleDownload = async () => {
+    setLoading(true)
+    try {
+      const { url, isBlob } = await resolveBadgeUrl(attendeeId)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `badge-${attendeeId}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      if (isBlob) URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Failed to download badge.')
+    } finally {
+      setLoading(false)
+    }
+  }
+  return (
+    <button
+      onClick={handleDownload}
+      disabled={loading}
+      className="text-xs px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-semibold transition-colors shrink-0 flex items-center gap-1.5"
+    >
+      {loading && <Spinner size="sm" />}
+      Download Badge
+    </button>
+  )
+}
 
 /* ── Scanned result row ─────────────────────────────────────────────────────── */
 function ScanResultRow({ item, onStatusUpdate }) {
@@ -57,16 +89,8 @@ function ScanResultRow({ item, onStatusUpdate }) {
       </div>
 
       {/* Badge link once checked in */}
-      {item.status === 'checked_in' && !item.already_checked_in && item.badge_pdf_url && (
-        <a
-          href={item.badge_pdf_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          download
-          className="text-xs px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white font-semibold transition-colors shrink-0"
-        >
-          Download Badge
-        </a>
+      {item.status === 'checked_in' && !item.already_checked_in && (
+        <ScanBadgeButton attendeeId={item.attendee_id} />
       )}
     </div>
   )

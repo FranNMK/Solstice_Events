@@ -84,7 +84,7 @@ function RegistrationCard({ reg, onStatusUpdate, onUnregister }) {
   const handleDownload = async () => {
     setBadgeLoading(true)
     try {
-      const { url, isBlob } = await resolveBadgeUrl(reg.id, reg.badge_pdf_url)
+      const { url, isBlob } = await resolveBadgeUrl(reg.id)
       const a = document.createElement('a')
       a.href = url
       a.download = `badge-${reg.name.replace(/\s+/g, '_')}.pdf`
@@ -103,7 +103,7 @@ function RegistrationCard({ reg, onStatusUpdate, onUnregister }) {
   const handlePrint = async () => {
     setBadgeLoading(true)
     try {
-      const { url, isBlob } = await resolveBadgeUrl(reg.id, reg.badge_pdf_url)
+      const { url, isBlob } = await resolveBadgeUrl(reg.id)
       const win = window.open(url, '_blank')
       if (isBlob) setTimeout(() => URL.revokeObjectURL(url), 30_000)
       if (!win) toast('Allow pop-ups to print the badge.', { icon: 'ℹ️' })

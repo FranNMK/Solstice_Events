@@ -81,6 +81,27 @@ def upload_image(data: bytes, public_id: str) -> str | None:
         return None
 
 
+def make_signed_url(attendee_id: str, expires_in: int = 3600) -> str | None:
+    """
+    Generate a signed Cloudinary URL for a badge PDF that bypasses
+    account-level access restrictions. Valid for `expires_in` seconds (default 1h).
+    Returns None if Cloudinary is not configured.
+    """
+    if not _configure():
+        return None
+    import time
+    import cloudinary
+    expiry = int(time.time()) + expires_in
+    url, _ = cloudinary.utils.cloudinary_url(
+        f"solstice/badges/{attendee_id}.pdf",
+        resource_type="raw",
+        type="upload",
+        sign_url=True,
+        expires_at=expiry,
+    )
+    return url or None
+
+
 def upload_pdf(file_path: str, public_id: str) -> str | None:
     """
     Upload a PDF file from disk to Cloudinary under 'solstice/badges/' folder.
@@ -102,6 +123,7 @@ def upload_pdf(file_path: str, public_id: str) -> str | None:
             file_path,
             public_id=f"solstice/badges/{public_id}",
             resource_type="raw",   # 'raw' is required for non-image files like PDF
+            type="upload",         # 'upload' = public delivery (default is 'authenticated' for raw)
             format="pdf",
             overwrite=True,
             invalidate=True,

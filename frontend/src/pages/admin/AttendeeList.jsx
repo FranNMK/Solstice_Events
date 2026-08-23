@@ -1,9 +1,42 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import toast from 'react-hot-toast'
 import { getEventAttendees, getEvent } from '../../api/events'
+import { resolveBadgeUrl } from '../../api/attendees'
 import Navbar from '../../components/Navbar'
 import StatusPill from '../../components/StatusPill'
 import Spinner from '../../components/Spinner'
+
+function AdminBadgeLink({ attendeeId }) {
+  const [loading, setLoading] = useState(false)
+  const handleDownload = async () => {
+    setLoading(true)
+    try {
+      const { url, isBlob } = await resolveBadgeUrl(attendeeId)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `badge-${attendeeId}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      if (isBlob) URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Failed to download badge.')
+    } finally {
+      setLoading(false)
+    }
+  }
+  return (
+    <button
+      onClick={handleDownload}
+      disabled={loading}
+      className="text-xs px-2.5 py-1 rounded-lg bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-semibold transition-colors flex items-center gap-1"
+    >
+      {loading && <Spinner size="sm" />}
+      Download
+    </button>
+  )
+}
 
 export default function AttendeeList() {
   const { id: eventId } = useParams()
@@ -109,16 +142,8 @@ export default function AttendeeList() {
                           <td className="px-5 py-3 text-gray-500">{a.profession || '—'}</td>
                           <td className="px-5 py-3"><StatusPill status={a.status} /></td>
                           <td className="px-5 py-3">
-                            {a.status === 'checked_in' && a.badge_pdf_url ? (
-                              <a
-                                href={a.badge_pdf_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                download
-                                className="text-xs px-2.5 py-1 rounded-lg bg-green-600 hover:bg-green-700 text-white font-semibold transition-colors"
-                              >
-                                Download
-                              </a>
+                            {a.status === 'checked_in' ? (
+                              <AdminBadgeLink attendeeId={a.id} />
                             ) : (
                               <span className="text-gray-300 text-xs">—</span>
                             )}

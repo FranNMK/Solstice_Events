@@ -18,13 +18,12 @@ export const unregisterAttendee  = (id)           => api.delete(`/attendees/${id
  *
  * Returns { url, isBlob } so the caller knows whether to revoke.
  */
-export async function resolveBadgeUrl(attendeeId, badgePdfUrl) {
-  // Cloudinary / any external CDN URL — use directly, no auth needed
-  if (badgePdfUrl && (badgePdfUrl.startsWith('https://') || badgePdfUrl.startsWith('http://'))) {
-    return { url: badgePdfUrl, isBlob: false }
-  }
-
-  // Local /static/... path — must go through the authenticated backend endpoint
+export async function resolveBadgeUrl(attendeeId) {
+  // Always fetch through the authenticated backend endpoint.
+  // The backend generates a signed Cloudinary URL (bypasses account restrictions)
+  // and returns a 302 redirect which axios follows automatically.
+  // responseType:'blob' ensures the final PDF bytes are captured regardless
+  // of how many redirects are followed.
   const resp = await api.get(`/attendees/${attendeeId}/badge`, { responseType: 'blob' })
   const blob = new Blob([resp.data], { type: 'application/pdf' })
   return { url: URL.createObjectURL(blob), isBlob: true }
