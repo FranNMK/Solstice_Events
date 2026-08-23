@@ -102,38 +102,38 @@ with Session() as session:
 # ---------------------------------------------------------------------------
 DEMO_EVENTS = [
     {
-        "title": "Solstice Tech Summit 2025",
+        "title": "Nairobi Tech Summit 2025",
         "description": (
-            "Join industry leaders, innovators, and visionaries for a full day of keynotes, "
-            "workshops, and networking at the premier tech conference of the year. Topics span "
-            "AI, cloud architecture, and the future of software engineering."
+            "Kenya's premier technology conference bringing together developers, entrepreneurs, "
+            "and innovators from across East Africa. A full day of keynotes, workshops, and "
+            "networking covering AI, fintech, cloud computing, and the future of tech on the continent."
         ),
         "date": datetime.now(timezone.utc) + timedelta(days=14),
-        "location": "The Grand Convention Centre, San Francisco, CA",
+        "location": "Kenyatta International Convention Centre (KICC), Nairobi",
         "image_url": "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=800&q=80",
         "is_published": True,
     },
     {
-        "title": "Founders & Funders Mixer",
+        "title": "Waanzilishi & Wawekezaji Forum",
         "description": (
-            "An exclusive evening connecting early-stage founders with angel investors and "
-            "venture partners. Pitch your idea, build relationships, and discover the funding "
-            "landscape in a relaxed, curated setting."
+            "An exclusive evening connecting Kenyan startup founders with local angel investors, "
+            "venture capital partners, and development finance institutions. Pitch your idea, "
+            "forge lasting partnerships, and navigate the East African funding landscape."
         ),
         "date": datetime.now(timezone.utc) + timedelta(days=30),
-        "location": "Rooftop Lounge, 1 Market Street, New York, NY",
+        "location": "The Alchemist Bar & Garden, Westlands, Nairobi",
         "image_url": "https://images.unsplash.com/photo-1511795409834-ef04bbd61622?w=800&q=80",
         "is_published": True,
     },
     {
-        "title": "Design Systems Workshop",
+        "title": "Ubunifu Design & UX Workshop",
         "description": (
-            "A hands-on full-day workshop for UX/UI designers and front-end engineers. "
-            "Build a scalable design system from scratch, explore token-based theming, "
-            "and learn Figma-to-code workflows with industry practitioners."
+            "A hands-on full-day workshop for Kenyan UX/UI designers and front-end engineers. "
+            "Build a scalable design system from scratch, explore accessible design for African "
+            "audiences, and master Figma-to-code workflows with local industry practitioners."
         ),
         "date": datetime.now(timezone.utc) + timedelta(days=7),
-        "location": "Studio 42, Chicago Innovation Hub, Chicago, IL",
+        "location": "iHub, 8th Floor, Senteu Plaza, Kilimani, Nairobi",
         "image_url": "https://images.unsplash.com/photo-1559028012-481c04fa702d?w=800&q=80",
         "is_published": True,
     },
