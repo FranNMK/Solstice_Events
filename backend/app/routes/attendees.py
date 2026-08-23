@@ -185,14 +185,15 @@ async def download_badge(
     current_user: dict = Depends(get_current_user),
 ):
     """
-    Serve the badge PDF. Only available once status is checked_in.
+    Stream the badge PDF to the browser.
 
-    Cloudinary raw assets may be restricted by account security settings.
-    We generate a short-lived signed URL (1 hour) so the download always
-    works regardless of the account's default delivery policy.
+    Cloudinary account security restricts direct public access to raw assets —
+    signed URLs are also blocked by the account policy.
+    Solution: the backend downloads the PDF from Cloudinary using the SDK
+    (authenticated via API secret, always works) and streams the bytes directly
+    to the browser. No CDN URL is ever exposed to the browser.
     """
     import os
-    from fastapi.responses import RedirectResponse
 
     attendee = (
         await db.execute(select(Attendee).where(Attendee.id == attendee_id))
@@ -210,22 +211,25 @@ async def download_badge(
         )
 
     badge_url: str = attendee.badge_pdf_url
+    safe_name = attendee.name.replace(" ", "_")
 
-    # Cloudinary URL → generate a signed URL so it bypasses account access restrictions
+    # Cloudinary URL → download via SDK (API-authenticated) and stream bytes
     if "cloudinary.com" in badge_url:
         try:
-            from app.services.cloudinary_storage import make_signed_url
-            signed = make_signed_url(attendee_id)
-            if signed:
-                return RedirectResponse(url=signed, status_code=302)
+            from app.services.cloudinary_storage import download_pdf_bytes
+            pdf_bytes = await download_pdf_bytes(attendee_id)
+            if pdf_bytes:
+                from fastapi.responses import Response
+                return Response(
+                    content=pdf_bytes,
+                    media_type="application/pdf",
+                    headers={
+                        "Content-Disposition": f'attachment; filename="badge-{safe_name}.pdf"',
+                    },
+                )
         except Exception as exc:
-            logger.warning("Could not generate signed Cloudinary URL: %s", exc)
-        # Fallback: redirect to the stored URL as-is
-        return RedirectResponse(url=badge_url, status_code=302)
-
-    # Non-Cloudinary external URL (future CDN) → redirect directly
-    if badge_url.startswith("http://") or badge_url.startswith("https://"):
-        return RedirectResponse(url=badge_url, status_code=302)
+            logger.error("Cloudinary download failed for %s: %s", attendee_id, exc, exc_info=True)
+        raise HTTPException(status_code=502, detail="Badge file could not be retrieved from storage.")
 
     # Local /static/... path (local dev fallback) → stream from disk
     file_path = os.path.join(
@@ -237,5 +241,5 @@ async def download_badge(
     return FileResponse(
         path=file_path,
         media_type="application/pdf",
-        filename=f"badge-{attendee.name.replace(' ', '_')}.pdf",
+        filename=f"badge-{safe_name}.pdf",
     )

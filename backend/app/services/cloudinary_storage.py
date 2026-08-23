@@ -81,6 +81,58 @@ def upload_image(data: bytes, public_id: str) -> str | None:
         return None
 
 
+async def download_pdf_bytes(attendee_id: str) -> bytes | None:
+    """
+    Download badge PDF bytes from Cloudinary using API authentication.
+    This bypasses any CDN delivery restrictions on the account.
+    Returns raw PDF bytes, or None if Cloudinary is not configured.
+    """
+    if not _configure():
+        return None
+
+    import cloudinary.utils
+    import time
+    import httpx
+
+    # Build a signed download URL using the API secret — this always works
+    # regardless of CDN delivery type (authenticated/upload/private)
+    url, _ = cloudinary.utils.cloudinary_url(
+        f"solstice/badges/{attendee_id}.pdf",
+        resource_type="raw",
+        type="upload",
+        secure=True,
+        sign_url=True,
+        expires_at=int(time.time()) + 300,  # 5 min is plenty
+    )
+
+    async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
+        resp = await client.get(url)
+
+    if resp.status_code == 200:
+        return resp.content
+
+    # Try authenticated delivery type as fallback
+    url_auth, _ = cloudinary.utils.cloudinary_url(
+        f"solstice/badges/{attendee_id}.pdf",
+        resource_type="raw",
+        type="authenticated",
+        secure=True,
+        sign_url=True,
+        expires_at=int(time.time()) + 300,
+    )
+    async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
+        resp2 = await client.get(url_auth)
+
+    if resp2.status_code == 200:
+        return resp2.content
+
+    logger.error(
+        "download_pdf_bytes: both URL types returned non-200 for %s (upload=%s, auth=%s)",
+        attendee_id, resp.status_code, resp2.status_code,
+    )
+    return None
+
+
 def make_signed_url(attendee_id: str, expires_in: int = 3600) -> str | None:
     """
     Generate a signed Cloudinary URL for a badge PDF that bypasses
@@ -96,6 +148,7 @@ def make_signed_url(attendee_id: str, expires_in: int = 3600) -> str | None:
         f"solstice/badges/{attendee_id}.pdf",
         resource_type="raw",
         type="upload",
+        secure=True,        # force https:// — required on HTTPS pages (Mixed Content)
         sign_url=True,
         expires_at=expiry,
     )
