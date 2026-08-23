@@ -185,61 +185,79 @@ async def download_badge(
     current_user: dict = Depends(get_current_user),
 ):
     """
-    Stream the badge PDF to the browser.
+    Generate the badge PDF on-demand and stream it directly to the browser.
 
-    Cloudinary account security restricts direct public access to raw assets —
-    signed URLs are also blocked by the account policy.
-    Solution: the backend downloads the PDF from Cloudinary using the SDK
-    (authenticated via API secret, always works) and streams the bytes directly
-    to the browser. No CDN URL is ever exposed to the browser.
+    Cloudinary's account-level CDN policy blocks all raw asset delivery
+    regardless of access type or URL signatures. The only 100% reliable
+    approach is to regenerate the PDF in the backend on each request
+    (fast: ~200ms using reportlab) and return the bytes directly.
+    Cloudinary is still used for storage/backup, but never for delivery.
     """
-    import os
+    import asyncio
 
     attendee = (
-        await db.execute(select(Attendee).where(Attendee.id == attendee_id))
-    ).scalar_one_or_none()
+        await db.execute(
+            select(Attendee, Event)
+            .join(Event, Attendee.event_id == Event.id)
+            .where(Attendee.id == attendee_id)
+        )
+    ).first()
+
     if not attendee:
         raise HTTPException(status_code=404, detail="Attendee not found.")
 
-    if current_user["role"] == "customer" and attendee.user_id != current_user["sub"]:
+    attendee_row, event_row = attendee
+
+    if current_user["role"] == "customer" and attendee_row.user_id != current_user["sub"]:
         raise HTTPException(status_code=403, detail="Access denied.")
 
-    if attendee.status != "checked_in" or not attendee.badge_pdf_url:
+    if attendee_row.status != "checked_in":
         raise HTTPException(
             status_code=404,
             detail="Badge not available yet. Check in first.",
         )
 
-    badge_url: str = attendee.badge_pdf_url
-    safe_name = attendee.name.replace(" ", "_")
+    safe_name = attendee_row.name.replace(" ", "_")
 
-    # Cloudinary URL → download via SDK (API-authenticated) and stream bytes
-    if "cloudinary.com" in badge_url:
+    # Draw the badge PDF into a temp file, read bytes, stream to browser.
+    # Done in a thread executor so reportlab doesn't block the async event loop.
+    import os, tempfile
+    from app.services.badge import _draw_badge
+    from fastapi.responses import Response
+
+    def _render() -> bytes:
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp_path = tmp.name
         try:
-            from app.services.cloudinary_storage import download_pdf_bytes
-            pdf_bytes = await download_pdf_bytes(attendee_id)
-            if pdf_bytes:
-                from fastapi.responses import Response
-                return Response(
-                    content=pdf_bytes,
-                    media_type="application/pdf",
-                    headers={
-                        "Content-Disposition": f'attachment; filename="badge-{safe_name}.pdf"',
-                    },
-                )
-        except Exception as exc:
-            logger.error("Cloudinary download failed for %s: %s", attendee_id, exc, exc_info=True)
-        raise HTTPException(status_code=502, detail="Badge file could not be retrieved from storage.")
+            _draw_badge(
+                tmp_path,
+                name=attendee_row.name,
+                profession=attendee_row.profession or "Attendee",
+                event_title=event_row.title,
+                event_date=event_row.date,
+                qr_code_id=attendee_row.qr_code_id,
+            )
+            with open(tmp_path, "rb") as f:
+                return f.read()
+        finally:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
 
-    # Local /static/... path (local dev fallback) → stream from disk
-    file_path = os.path.join(
-        os.path.dirname(__file__), "..", "static", "badges", f"{attendee_id}.pdf"
-    )
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Badge file not found on server.")
+    try:
+        loop = asyncio.get_event_loop()
+        pdf_bytes = await loop.run_in_executor(None, _render)
+    except Exception as exc:
+        logger.error("Badge render failed for %s: %s", attendee_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Badge generation failed.")
 
-    return FileResponse(
-        path=file_path,
+    logger.info("Badge streamed for attendee=%s (%s)", attendee_id, attendee_row.name)
+    return Response(
+        content=pdf_bytes,
         media_type="application/pdf",
-        filename=f"badge-{safe_name}.pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="badge-{safe_name}.pdf"',
+            "Cache-Control": "private, max-age=3600",
+        },
     )
