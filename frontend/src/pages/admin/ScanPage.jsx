@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import toast from 'react-hot-toast'
-import { checkIn, getAttendeeStatus, getBadgeUrl } from '../../api/attendees'
+import { checkIn, getAttendeeStatus } from '../../api/attendees'
 import Navbar from '../../components/Navbar'
 import StatusPill from '../../components/StatusPill'
 import Spinner from '../../components/Spinner'
@@ -57,9 +57,11 @@ function ScanResultRow({ item, onStatusUpdate }) {
       </div>
 
       {/* Badge link once checked in */}
-      {item.status === 'checked_in' && !item.already_checked_in && (
+      {item.status === 'checked_in' && !item.already_checked_in && item.badge_pdf_url && (
         <a
-          href={getBadgeUrl(item.attendee_id)}
+          href={item.badge_pdf_url}
+          target="_blank"
+          rel="noopener noreferrer"
           download
           className="text-xs px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white font-semibold transition-colors shrink-0"
         >

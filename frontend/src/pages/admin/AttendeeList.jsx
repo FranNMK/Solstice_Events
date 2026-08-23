@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { getEventAttendees, getEvent } from '../../api/events'
-import { getBadgeUrl } from '../../api/attendees'
 import Navbar from '../../components/Navbar'
 import StatusPill from '../../components/StatusPill'
 import Spinner from '../../components/Spinner'
@@ -110,9 +109,11 @@ export default function AttendeeList() {
                           <td className="px-5 py-3 text-gray-500">{a.profession || '—'}</td>
                           <td className="px-5 py-3"><StatusPill status={a.status} /></td>
                           <td className="px-5 py-3">
-                            {a.status === 'checked_in' ? (
+                            {a.status === 'checked_in' && a.badge_pdf_url ? (
                               <a
-                                href={getBadgeUrl(a.id)}
+                                href={a.badge_pdf_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
                                 download
                                 className="text-xs px-2.5 py-1 rounded-lg bg-green-600 hover:bg-green-700 text-white font-semibold transition-colors"
                               >
