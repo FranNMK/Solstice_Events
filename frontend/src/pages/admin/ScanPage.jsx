@@ -89,10 +89,17 @@ export default function ScanPage() {
     const trimmed = qrCodeId.trim()
     if (!trimmed) return
 
-    // Debounce: skip if already in results list (same attendee_id pending or done)
+    // Debounce: skip if already in results list for this QR code
     setResults(prev => {
-      const alreadyInList = prev.some(r => r.qr_code_id === trimmed)
-      if (alreadyInList) return prev
+      if (prev.some(r => r.qr_code_id === trimmed)) return prev
+      return prev  // actual insert happens below after API call
+    })
+
+    // Check synchronously so we can exit before the API call
+    // (React state reads are async so we track with a local var)
+    let isInList = false
+    setResults(prev => {
+      isInList = prev.some(r => r.qr_code_id === trimmed)
       return prev
     })
 
@@ -101,8 +108,14 @@ export default function ScanPage() {
       const { data } = await checkIn(trimmed)
 
       if (data.already_checked_in) {
+        // Fetch the status to get badge_pdf_url so the Download button shows
+        let badgePdfUrl = null
+        try {
+          const { data: statusData } = await getAttendeeStatus(data.attendee_id)
+          badgePdfUrl = statusData.badge_pdf_url
+        } catch { /* ignore */ }
+
         setResults(prev => {
-          // Avoid duplicate entries in the list
           if (prev.some(r => r.attendee_id === data.attendee_id && r.already_checked_in)) return prev
           return [{
             qr_code_id: trimmed,
@@ -110,6 +123,7 @@ export default function ScanPage() {
             name: null,
             profession: null,
             status: data.status,
+            badge_pdf_url: badgePdfUrl,
             already_checked_in: true,
           }, ...prev]
         })
@@ -121,6 +135,7 @@ export default function ScanPage() {
           name: null,
           profession: null,
           status: 'pending',
+          badge_pdf_url: null,
           already_checked_in: false,
         }, ...prev])
         toast.success('Check-in accepted — badge generating…')
