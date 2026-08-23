@@ -1,6 +1,0 @@
-INFO:     Started server process [12832]
-INFO:     Waiting for application startup.
-Database connection failed on startup: (pymysql.err.OperationalError) (2003, "Can't connect to MySQL server on 'gateway01.eu-central-1.prod.aws.tidbcloud.com'")
-(Background on this error at: https://sqlalche.me/e/20/e3q8)
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://127.0.0.1:8005 (Press CTRL+C to quit)

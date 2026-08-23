@@ -33,9 +33,9 @@ A production-grade, full-stack event registration and check-in platform. Custome
 - Browse published events with countdown pills and location details
 - Create an account or sign in — JWT-based auth, role-aware redirects
 - Register for any event — name + profession saved to your badge
-- Receive a confirmation email with event details (sent from `noreply@test.kigumotvc.ac.ke`)
+- Receive a confirmation email with event details
 - View your QR code on the dashboard — present it at the door
-- Live status polling — dashboard auto-updates from `Registered → Pending → Checked In ✓` without page refresh
+- Live status polling — dashboard auto-updates `Registered → Pending → Checked In ✓` without page refresh
 - Download or print your personalised PDF badge once checked in
 - Unregister from an event (only while status is `registered`)
 
@@ -58,9 +58,9 @@ A production-grade, full-stack event registration and check-in platform. Custome
 | **Frontend** | React 18 · Vite · Tailwind CSS v4 |
 | **Auth** | JWT (`python-jose`) — roles: `customer` / `admin` |
 | **Email** | Resend SDK · verified domain `test.kigumotvc.ac.ke` |
-| **QR Codes** | `qrcode[pil]` — server-side PNG, in-memory generation |
-| **PDF Badges** | `reportlab` — A6 card-style PDF, async pipeline |
-| **File Storage** | Cloudinary CDN (QR PNGs) · Cloudflare R2 (badge PDFs, S3-compatible, no delivery restrictions) |
+| **QR Codes** | `qrcode[pil]` — server-side PNG, in-memory generation · stored in Cloudinary |
+| **PDF Badges** | `reportlab` — A6 card-style PDF, generated once at check-in · stored in Cloudflare R2 |
+| **File Storage** | Cloudinary CDN (QR PNGs) · Cloudflare R2 (badge PDFs, S3-compatible) |
 | **Hosting** | Render — FastAPI web service + React static site |
 
 ---
@@ -71,14 +71,14 @@ A production-grade, full-stack event registration and check-in platform. Custome
 Solstice_Events/
 ├── render.yaml                   ← Render infrastructure-as-code (both services)
 ├── README.md
-├── solstice-events-plan.md       ← Phase-by-phase build plan (all 8 phases complete)
 │
 ├── backend/
 │   ├── requirements.txt
 │   ├── .env.example              ← all env vars documented
 │   ├── seed.py                   ← idempotent demo data seeder
+│   ├── reset_attendees.py        ← maintenance: reset all attendees to 'registered'
 │   └── app/
-│       ├── main.py               ← FastAPI app, CORS, static mount, worker thread startup
+│       ├── main.py               ← FastAPI app, CORS, static mount, R2 health-check, worker startup
 │       ├── config.py             ← all settings read from environment variables
 │       ├── database.py           ← async engine (aiomysql) + sync engine (pymysql for worker)
 │       ├── models.py             ← User, Event, Attendee, BadgeJob ORM models
@@ -87,8 +87,8 @@ Solstice_Events/
 │       │   ├── router.py         ← POST /auth/register · POST /auth/login
 │       │   └── utils.py          ← JWT encode/decode, password hashing, require_role()
 │       ├── routes/
-│       │   ├── events.py         ← CRUD /events + /admin/events (delete blocked if attendees exist)
-│       │   ├── attendees.py      ← register, my, status poll, badge download/redirect, unregister
+│       │   ├── events.py         ← CRUD /events + /admin/events
+│       │   ├── attendees.py      ← register, my, status poll, badge 302→R2, unregister
 │       │   ├── checkin.py        ← POST /checkin — enqueues badge job, duplicate-scan guard
 │       │   └── webhooks.py       ← POST /webhooks/badge-complete — HMAC-SHA256 validated
 │       └── services/
@@ -96,11 +96,11 @@ Solstice_Events/
 │           ├── r2_storage.py     ← upload_pdf() → Cloudflare R2 (badge PDFs, boto3 S3-compat)
 │           ├── qr.py             ← generate PNG in memory → upload to Cloudinary → CDN URL
 │           ├── badge.py          ← generate PDF to tempfile → upload to R2 → public URL
-│           ├── email.py          ← Resend HTML confirmation email (RESEND_TEST_TO override)
-│           └── worker.py         ← daemon thread: polls queued jobs → badge → DB update
+│           ├── email.py          ← Resend HTML confirmation email
+│           └── worker.py         ← daemon thread: polls queued jobs → generates badge → writes R2 URL to DB
 │
 └── frontend/
-    ├── index.html                ← favicon = logo.png · title = "Solstice Events — Where Moments Become Memories"
+    ├── index.html
     ├── vite.config.js
     ├── .env.example              ← VITE_API_URL
     └── src/
@@ -116,7 +116,7 @@ Solstice_Events/
         │   ├── index.js          ← axios + Bearer interceptor + 401 redirect
         │   ├── auth.js           ← login · register
         │   ├── events.js         ← getEvents · getAdminEvents · create · update · delete
-        │   └── attendees.js      ← register · my · status · badgeUrl · checkIn · unregister
+        │   └── attendees.js      ← register · my · status · resolveBadgeUrl · checkIn · unregister
         ├── components/
         │   ├── Navbar.jsx        ← logo, role-aware nav links, logout
         │   ├── EventCard.jsx     ← image, countdown pill, date, location, Register button
@@ -125,15 +125,15 @@ Solstice_Events/
         └── pages/
             ├── Landing.jsx       ← hero section + event carousel + feature highlights
             ├── Events.jsx        ← published events grid
-            ├── Login.jsx         ← email + password (show/hide toggle)
-            ├── SignUp.jsx        ← email + password × 2 (show/hide toggles)
+            ├── Login.jsx         ← email + password
+            ├── SignUp.jsx        ← email + password × 2
             ├── Register.jsx      ← event-specific registration (auth-gated)
-            ├── Dashboard.jsx     ← registrations, QR toggle, badge download, live polling, unregister
+            ├── Dashboard.jsx     ← registrations, QR toggle, badge download/print, live polling
             └── admin/
-                ├── AdminDashboard.jsx  ← event list, stats, publish toggle, delete with confirm modal
+                ├── AdminDashboard.jsx  ← event list, publish toggle, delete with confirm modal
                 ├── EventForm.jsx       ← create/edit with image preview + publish checkbox
-                ├── AttendeeList.jsx    ← per-event table with stats + badge download links
-                └── ScanPage.jsx        ← camera scanner (@zxing) + manual fallback + live polling
+                ├── AttendeeList.jsx    ← per-event table with stats + badge download
+                └── ScanPage.jsx        ← camera scanner + manual fallback + live polling
 ```
 
 ---
@@ -145,14 +145,14 @@ Solstice_Events/
 Customer fills form → POST /attendees/register
   → Attendee row created (status: registered)
   → QR PNG generated in memory → uploaded to Cloudinary
-  → Confirmation email sent via Resend (from noreply@test.kigumotvc.ac.ke)
+  → Confirmation email sent via Resend
   → Returns attendee record with qr_code_id
 ```
 
 ### 2. Admin scans the QR code at the door
 ```
 Admin scans QR (camera or manual paste) → POST /checkin
-  → Duplicate check: if status=pending/checked_in → return already_checked_in:true
+  → Duplicate check: if status=pending/checked_in → already_checked_in: true
   → Otherwise: attendee.status = "pending"
   → BadgeJob(status="queued") inserted
   → Returns immediately (non-blocking)
@@ -164,24 +164,25 @@ BadgeWorker daemon thread (polls every 2 s)
   → Finds queued BadgeJob
   → Marks job status = "processing"
   → Sleeps 3–5 s (simulates badge printer)
-  → Generates A6 PDF badge via reportlab (with QR embedded in-memory)
+  → Generates A6 PDF badge via reportlab (QR embedded in-memory)
   → Uploads PDF bytes to Cloudflare R2 → gets permanent public URL
   → Deletes local temp file
-  → Updates attendee directly via DB session:
+  → Updates attendee directly via DB session (one-time write):
       attendee.status        = "checked_in"
-      attendee.badge_pdf_url = R2 public URL   ← written exactly once
+      attendee.badge_pdf_url = R2 public URL
   → Marks job status = "completed"
 ```
 
 ### 4. Frontend reflects status in real time
 ```
 Customer dashboard / Admin scan page
-  → usePolling(getAttendeeStatus, 3000ms, status==="pending")
+  → usePolling(getAttendeeStatus, 3000ms, while status==="pending")
   → Status changes to "checked_in" → polling stops
-  → Toast fires: "Checked In ✓ — badge ready"
+  → Toast: "Checked In ✓ — badge ready"
   → "Download Badge" / "Print Badge" buttons appear
-  → resolveBadgeUrl() reads badge_pdf_url from attendee status
-  → Opens/downloads the PDF directly from R2 CDN — zero backend hop
+  → resolveBadgeUrl() reads badge_pdf_url from status response
+  → _isR2Url() confirms it's a Cloudflare R2 URL
+  → Browser opens PDF directly from R2 CDN — zero backend hop
 ```
 
 ---
@@ -201,24 +202,23 @@ MySQL-compatible serverless database. Four tables:
 - `users` — UUID pk, email, hashed_password, role
 - `events` — UUID pk, title, description, date, location, image_url, is_published
 - `attendees` — UUID pk, user_id FK, event_id FK, name, profession, qr_code_id, status, badge_pdf_url
-- `badge_jobs` — UUID pk, attendee_id FK, status (queued/processing/completed), timestamps
+- `badge_jobs` — UUID pk, attendee_id FK, status (queued/processing/completed/failed), timestamps
 
 ### Cloudinary (QR code storage)
-QR code PNGs are uploaded to Cloudinary and survive Render restarts:
+QR code PNGs are uploaded at registration time and survive Render restarts:
 - QR codes → `solstice/qrcodes/{qr_code_id}` (PNG, `image` resource type)
 
 ### Cloudflare R2 (badge PDF storage)
-Badge PDFs are uploaded to R2 (S3-compatible, `boto3`) and stored permanently:
-- Badges → `badges/{attendee_id}.pdf` in the configured R2 bucket
-- PDFs are generated **exactly once** per attendee at check-in time
-- The public URL is stored in `attendee.badge_pdf_url` and served directly to the browser — no Cloudinary raw-delivery restrictions, no backend proxy overhead
+Badge PDFs are generated once at check-in and stored permanently:
+- Badges → `badges/{attendee_id}.pdf` in the `solstice-badges` R2 bucket
+- Generated exactly once per attendee — no regeneration on download
+- The R2 public URL is stored in `attendee.badge_pdf_url` and served directly by the browser
 
-The `GET /attendees/{id}/badge` endpoint issues a **302 redirect** to the R2 public URL. The frontend reads `badge_pdf_url` from the status poll response and opens R2 directly, skipping even the redirect hop.
+The `GET /attendees/{id}/badge` endpoint issues a **302 redirect** to the R2 public URL. The frontend reads `badge_pdf_url` directly from the status poll and opens R2 without even hitting the redirect.
 
 ### Resend (email)
-Sending domain: `test.kigumotvc.ac.ke` (verified)
+Sending domain: `test.kigumotvc.ac.ke` (verified)  
 From address: `noreply@test.kigumotvc.ac.ke`
-Delivers to any recipient worldwide.
 
 ---
 
@@ -227,29 +227,25 @@ Delivers to any recipient worldwide.
 ### Prerequisites
 - Python 3.11+
 - Node.js 18+
-- TiDB Cloud cluster (free tier — get connection string from the TiDB console)
+- TiDB Cloud cluster (free tier)
 - Cloudinary account (free tier — for QR code storage)
 - Cloudflare account with an R2 bucket (free tier — for badge PDF storage)
-- Resend account + verified domain (optional — emails log to console if key not set)
+- Resend account + verified domain (optional — emails skip gracefully if key not set)
 
 ---
 
 ### 1 — Backend
 
 ```bash
-# Clone and enter the project
 git clone https://github.com/FranNMK/Solstice_Events.git
 cd Solstice_Events/backend
 
-# Create and activate virtual environment
 python -m venv venv
 .\venv\Scripts\Activate.ps1      # Windows PowerShell
 # source venv/bin/activate        # macOS / Linux
 
-# Install dependencies
 pip install -r requirements.txt
 
-# Copy and fill in environment variables
 copy .env.example .env           # Windows
 # cp .env.example .env            # macOS / Linux
 ```
@@ -262,11 +258,13 @@ JWT_SECRET=any-long-random-string
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 RESEND_API_KEY=re_xxxxxxxxxxxx
-RESEND_FROM=noreply@test.kigumotvc.ac.ke
-RESEND_TEST_TO=                            # leave empty — domain is verified
+RESEND_FROM=noreply@yourdomain.com
+RESEND_TEST_TO=
 WEBHOOK_SECRET=another-random-string
 BADGE_BASE_URL=http://localhost:8000
 ALLOWED_ORIGINS=http://localhost:5173
+
+# Cloudinary — QR code storage
 CLOUDINARY_URL=cloudinary://api_key:api_secret@cloud_name
 
 # Cloudflare R2 — badge PDF storage
@@ -277,18 +275,14 @@ R2_BUCKET_NAME=solstice-badges
 R2_PUBLIC_URL_BASE=https://pub-xxxxxxxxxxxx.r2.dev
 ```
 
-> **R2 fallback:** if R2 variables are not set, badge PDFs fall back to `backend/app/static/badges/` (local dev only — not persistent on Render).
+> **Local fallbacks:** if `CLOUDINARY_URL` is unset, QR PNGs save to `app/static/qrcodes/`. If R2 vars are unset, badge PDFs save to `app/static/badges/`. Neither is persistent on Render.
 
 ```bash
-# Create tables and seed demo data
-python seed.py
-
-# Start the API server
+python seed.py          # create tables + seed demo users and events
 uvicorn app.main:app --reload --port 8000
 ```
 
-API → **http://localhost:8000**  
-Swagger docs → **http://localhost:8000/docs**
+API → **http://localhost:8000** · Swagger → **http://localhost:8000/docs**
 
 ---
 
@@ -296,16 +290,8 @@ Swagger docs → **http://localhost:8000/docs**
 
 ```bash
 cd ../frontend
-
-# Install dependencies
 npm install
-
-# Copy environment file
-copy .env.example .env           # Windows
-# cp .env.example .env            # macOS / Linux
-# File contains: VITE_API_URL=http://localhost:8000
-
-# Start dev server
+copy .env.example .env    # contains: VITE_API_URL=http://localhost:8000
 npm run dev
 ```
 
@@ -315,19 +301,17 @@ Frontend → **http://localhost:5173**
 
 ## 🧪 Testing the Full Flow Locally
 
-Once both servers are running:
-
-1. **Open** http://localhost:5173 — landing page with 3 seeded events
-2. **Sign up** as a new customer at `/register` (or use `demo@solstice.dev` / `demo123`)
-3. **Browse events** → click **Register** on any event → fill in name and profession
-4. **Check your inbox** — confirmation email from `noreply@test.kigumotvc.ac.ke`
-5. **Dashboard** (`/dashboard`) → click **View QR Code** on your registration card
-6. **Open a new tab**, log in as `admin@solstice.dev` / `admin123`
-7. **Go to** `/admin/scan` → click **Start Camera** (allow permission) OR paste the QR code ID manually
-8. **Scan / submit** — both tabs immediately show **Pending…** with a spinner
-9. **Wait ~3–5 seconds** — status auto-updates to **Checked In ✓** on both tabs simultaneously (no refresh)
-10. **Click Download Badge** → PDF opens directly from Cloudflare R2 CDN (no backend hop)
-11. **Scan the same QR again** → amber **"Already checked in"** banner appears — no duplicate job created
+1. Open http://localhost:5173 — landing page with seeded events
+2. Sign up as a new customer (or use `demo@solstice.dev` / `demo123`)
+3. Browse events → click **Register** → fill in name and profession
+4. Check your inbox — confirmation email from Resend
+5. Go to `/dashboard` → click **View QR Code**
+6. Open a new tab → log in as `admin@solstice.dev` / `admin123`
+7. Go to `/admin/scan` → click **Start Camera** or paste the QR code ID manually
+8. Scan / submit — both tabs show **Pending…** with a spinner
+9. Wait ~3–5 seconds — status auto-updates to **Checked In ✓** on both tabs
+10. Click **Download Badge** → PDF opens directly from Cloudflare R2
+11. Scan the same QR again → amber **"Already checked in"** banner appears
 
 ---
 
@@ -342,11 +326,11 @@ Once both servers are running:
 | `GET` | `/admin/events` | Admin | All events incl. drafts |
 | `POST` | `/admin/events` | Admin | Create event |
 | `PUT` | `/admin/events/{id}` | Admin | Update / publish event |
-| `DELETE` | `/admin/events/{id}` | Admin | Delete event (blocked if attendees exist) |
-| `GET` | `/admin/events/{id}/attendees` | Admin | List attendees for event |
+| `DELETE` | `/admin/events/{id}` | Admin | Delete (blocked if attendees exist) |
+| `GET` | `/admin/events/{id}/attendees` | Admin | Attendee list for event |
 | `POST` | `/attendees/register` | Customer | Register for event |
-| `GET` | `/attendees/my` | Customer | My registrations (with event details) |
-| `GET` | `/attendees/{id}/status` | Auth | Status poll for badge pipeline |
+| `GET` | `/attendees/my` | Customer | My registrations with event details |
+| `GET` | `/attendees/{id}/status` | Auth | Status poll — returns status + badge_pdf_url |
 | `GET` | `/attendees/{id}/badge` | Auth | 302 redirect to R2 public PDF URL |
 | `DELETE` | `/attendees/{id}` | Customer | Unregister (blocked if pending/checked_in) |
 | `POST` | `/checkin` | Admin | Scan QR → enqueue badge job |
@@ -358,8 +342,10 @@ Once both servers are running:
 
 | Command | Directory | Description |
 |---|---|---|
-| `uvicorn app.main:app --reload --port 8000` | `backend/` | Start backend dev server with hot-reload |
+| `uvicorn app.main:app --reload --port 8000` | `backend/` | Start backend dev server |
 | `python seed.py` | `backend/` | Seed TiDB with demo users + 3 events (idempotent) |
+| `python reset_attendees.py` | `backend/` | Reset all attendees to `registered`, clear badge jobs |
+| `DRY_RUN=1 python reset_attendees.py` | `backend/` | Inspect DB state without making any changes |
 | `npm run dev` | `frontend/` | Start Vite dev server |
 | `npm run build` | `frontend/` | Production build → `dist/` |
 
@@ -372,21 +358,21 @@ Once both servers are running:
 | Variable | Required | Description |
 |---|---|---|
 | `TIDB_URL` | ✅ | SQLAlchemy async connection string for TiDB Cloud |
-| `JWT_SECRET` | ✅ | Secret key for signing JWTs — use a long random string |
+| `JWT_SECRET` | ✅ | Secret for signing JWTs — use a long random string |
 | `JWT_ALGORITHM` | ✅ | `HS256` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | ✅ | Token lifetime in minutes (default `60`) |
-| `RESEND_API_KEY` | ⚠️ | Resend API key — emails log to console if omitted |
+| `RESEND_API_KEY` | ⚠️ | Resend API key — emails skipped gracefully if omitted |
 | `RESEND_FROM` | ⚠️ | Sender address — must match a verified Resend domain |
-| `RESEND_TEST_TO` | — | Override: redirect all emails to this address (free-tier workaround) |
-| `WEBHOOK_SECRET` | ✅ | HMAC-SHA256 secret shared between worker and webhook endpoint |
-| `BADGE_BASE_URL` | ✅ | Backend public URL — used by worker to call the webhook |
+| `RESEND_TEST_TO` | — | Override: redirect all emails here (free-tier workaround) |
+| `WEBHOOK_SECRET` | ✅ | HMAC-SHA256 secret for the webhook endpoint |
+| `BADGE_BASE_URL` | ✅ | Backend public URL (used by worker for self-referencing) |
 | `ALLOWED_ORIGINS` | ✅ | Comma-separated CORS origins (frontend URL) |
 | `CLOUDINARY_URL` | ⚠️ | `cloudinary://key:secret@cloud_name` — QR PNGs stored locally if omitted |
 | `R2_ACCOUNT_ID` | ⚠️ | Cloudflare account ID — badge PDFs stored locally if all R2 vars omitted |
 | `R2_ACCESS_KEY_ID` | ⚠️ | R2 API token Access Key ID |
 | `R2_SECRET_ACCESS_KEY` | ⚠️ | R2 API token Secret Access Key |
-| `R2_BUCKET_NAME` | ⚠️ | Name of the R2 bucket (e.g. `solstice-badges`) |
-| `R2_PUBLIC_URL_BASE` | ⚠️ | Public URL base for the R2 bucket (e.g. `https://pub-xxx.r2.dev`) |
+| `R2_BUCKET_NAME` | ⚠️ | R2 bucket name (e.g. `solstice-badges`) |
+| `R2_PUBLIC_URL_BASE` | ⚠️ | Public URL base (e.g. `https://pub-xxx.r2.dev`) |
 
 ### Frontend (`frontend/.env`)
 
