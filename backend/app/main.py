@@ -37,6 +37,32 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     logger.info("Solstice Events API starting up.")
 
+    # ── R2 storage health-check ───────────────────────────────────────────
+    # Log R2 configuration state at startup so Render logs make it obvious
+    # whether badge PDFs will go to Cloudflare R2 or fall back to local disk.
+    import os as _os
+    _r2_vars = ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY",
+                "R2_BUCKET_NAME", "R2_PUBLIC_URL_BASE")
+    _missing = [v for v in _r2_vars if not _os.getenv(v, "").strip()]
+    if _missing:
+        logger.warning(
+            "R2 storage NOT configured — missing env vars: %s. "
+            "Badge PDFs will fall back to local static/ (not persistent on Render).",
+            ", ".join(_missing),
+        )
+    else:
+        from app.services.r2_storage import _get_client
+        _client = _get_client()
+        if _client is None:
+            logger.error("R2 env vars are set but boto3 client failed to initialise.")
+        else:
+            logger.info(
+                "R2 storage configured — account=%s bucket=%s public_url=%s",
+                _os.getenv("R2_ACCOUNT_ID", "")[:8] + "…",
+                _os.getenv("R2_BUCKET_NAME", ""),
+                _os.getenv("R2_PUBLIC_URL_BASE", ""),
+            )
+
     import threading
     from app.services.worker import run_worker
 
