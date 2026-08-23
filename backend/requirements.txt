@@ -17,3 +17,4 @@ pillow
 certifi
 requests
 cloudinary
+boto3

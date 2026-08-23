@@ -9,21 +9,30 @@ export const unregisterAttendee  = (id)           => api.delete(`/attendees/${id
 /**
  * Resolve the badge URL for a checked-in attendee.
  *
- * If badge_pdf_url is a Cloudinary CDN URL (https://...) return it directly —
- * the browser can open/download it without any auth header.
+ * Fast path (production): badge_pdf_url is a public R2 HTTPS URL stored on the
+ * attendee record. Return it directly — the browser fetches the PDF straight
+ * from R2 with no backend round-trip and no auth header needed.
  *
- * If it is a local /static/... path (local dev fallback), fetch via the
- * authenticated axios instance, convert to a blob URL, and return that.
- * The caller must call URL.revokeObjectURL(url) when done in the local case.
+ * Fallback (local dev, R2 not configured): badge_pdf_url is a /static/... path.
+ * Fetch via the authenticated axios instance, convert to a blob URL, and return
+ * that so the download/print still works without CORS issues.
+ * The caller must call URL.revokeObjectURL(url) when isBlob is true.
  *
- * Returns { url, isBlob } so the caller knows whether to revoke.
+ * Returns { url, isBlob }.
  */
 export async function resolveBadgeUrl(attendeeId) {
-  // Always fetch through the authenticated backend endpoint.
-  // The backend generates a signed Cloudinary URL (bypasses account restrictions)
-  // and returns a 302 redirect which axios follows automatically.
-  // responseType:'blob' ensures the final PDF bytes are captured regardless
-  // of how many redirects are followed.
+  // Fetch the attendee status to read the stored badge_pdf_url directly.
+  // This avoids an extra backend hop — the /badge endpoint just 302-redirects
+  // to this same URL anyway.
+  const { data } = await getAttendeeStatus(attendeeId)
+  const pdfUrl = data.badge_pdf_url
+
+  // Public R2 URL (or any absolute https:// URL) — serve directly from CDN
+  if (pdfUrl && pdfUrl.startsWith('http')) {
+    return { url: pdfUrl, isBlob: false }
+  }
+
+  // Local /static/... fallback: stream through the authenticated backend endpoint
   const resp = await api.get(`/attendees/${attendeeId}/badge`, { responseType: 'blob' })
   const blob = new Blob([resp.data], { type: 'application/pdf' })
   return { url: URL.createObjectURL(blob), isBlob: true }

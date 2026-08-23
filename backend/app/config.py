@@ -15,9 +15,16 @@ class Settings:
     RESEND_FROM: str = os.getenv("RESEND_FROM", "onboarding@resend.dev")
     WEBHOOK_SECRET: str = os.getenv("WEBHOOK_SECRET", "change_me")
     BADGE_BASE_URL: str = os.getenv("BADGE_BASE_URL", "http://localhost:8000")
-    # Cloudinary — set to your cloudinary://key:secret@cloud_name URL.
-    # When empty, files fall back to local static/ storage (local dev only).
+    # Cloudinary — used for QR code PNG storage; set to cloudinary://key:secret@cloud_name.
+    # When empty, QR PNGs fall back to local static/ storage (local dev only).
     CLOUDINARY_URL: str = os.getenv("CLOUDINARY_URL", "")
+    # Cloudflare R2 — used for badge PDF storage (S3-compatible).
+    # When these are empty, badge PDFs fall back to local static/ storage.
+    R2_ACCOUNT_ID: str = os.getenv("R2_ACCOUNT_ID", "")
+    R2_ACCESS_KEY_ID: str = os.getenv("R2_ACCESS_KEY_ID", "")
+    R2_SECRET_ACCESS_KEY: str = os.getenv("R2_SECRET_ACCESS_KEY", "")
+    R2_BUCKET_NAME: str = os.getenv("R2_BUCKET_NAME", "")
+    R2_PUBLIC_URL_BASE: str = os.getenv("R2_PUBLIC_URL_BASE", "")
     # Resend free-tier workaround: when set, ALL confirmation emails are
     # redirected to this address instead of the registrant's address.
     # Use your own verified Resend email during testing/staging.

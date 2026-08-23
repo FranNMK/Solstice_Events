@@ -10,8 +10,8 @@ Produces a card-style A6 badge PDF containing:
   - Solstice Events branding
 
 Storage strategy (in priority order):
-  1. Cloudinary — PDF is written to a temp file, uploaded to Cloudinary,
-     temp file is removed; returns a persistent CDN URL.
+  1. Cloudflare R2 — PDF bytes are uploaded once via r2_storage.upload_pdf();
+     returns a permanent public URL.
   2. Local static/badges/ — fallback for local dev; returns /static/... path.
 """
 
@@ -29,7 +29,7 @@ from reportlab.lib.colors import HexColor, white
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.lib.utils import ImageReader
 
-from app.services.cloudinary_storage import upload_pdf
+from app.services.r2_storage import upload_pdf as r2_upload_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -179,18 +179,17 @@ def generate_badge_pdf(
 
     Returns:
         (file_path, url_path)
-          - file_path: absolute local path (temp or static/badges/)
-          - url_path:  Cloudinary CDN URL  OR  /static/badges/{id}.pdf
+          - file_path: "" when stored in R2, or absolute path for local fallback
+          - url_path:  R2 public URL  OR  /static/badges/{id}.pdf
     """
-    # Try Cloudinary path: write to a named temp file, upload, then delete
-    cdn_url = _try_cloudinary_upload(
+    # Try R2 path: render to a temp file, read bytes, upload, delete temp file
+    r2_url = _try_r2_upload(
         attendee_id, name, profession, event_title, event_date, qr_code_id
     )
-    if cdn_url:
-        # Return a dummy local path (worker only uses url_path for the webhook payload)
-        return ("", cdn_url)
+    if r2_url:
+        return ("", r2_url)
 
-    # Fallback: persist to static/badges/
+    # Fallback: persist to static/badges/ (local dev / R2 not configured)
     os.makedirs(_BADGES_DIR, exist_ok=True)
     local_path = os.path.join(_BADGES_DIR, f"{attendee_id}.pdf")
     _draw_badge(local_path, name, profession, event_title, event_date, qr_code_id)
@@ -198,7 +197,7 @@ def generate_badge_pdf(
     return (local_path, f"/static/badges/{attendee_id}.pdf")
 
 
-def _try_cloudinary_upload(
+def _try_r2_upload(
     attendee_id: str,
     name: str,
     profession: str,
@@ -207,20 +206,23 @@ def _try_cloudinary_upload(
     qr_code_id: str,
 ) -> str | None:
     """
-    Write PDF to a temp file, upload to Cloudinary, delete temp file.
-    Returns the CDN URL on success, None if Cloudinary is not configured or upload fails.
+    Render the badge PDF into a temp file, read the bytes, upload to R2,
+    and delete the temp file.
+    Returns the R2 public URL on success, None if R2 is not configured or upload fails.
     """
     tmp_path = None
     try:
-        # Use a named temp file with .pdf suffix so Cloudinary detects the type
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
             tmp_path = tmp.name
 
         _draw_badge(tmp_path, name, profession, event_title, event_date, qr_code_id)
-        cdn_url = upload_pdf(tmp_path, attendee_id)
-        return cdn_url  # None if Cloudinary not configured
+
+        with open(tmp_path, "rb") as f:
+            pdf_bytes = f.read()
+
+        return r2_upload_pdf(pdf_bytes, f"badges/{attendee_id}.pdf")
     except Exception as exc:
-        logger.error("Cloudinary badge upload error: %s", exc)
+        logger.error("R2 badge upload error: %s", exc)
         return None
     finally:
         if tmp_path and os.path.exists(tmp_path):

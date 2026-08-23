@@ -60,7 +60,7 @@ A production-grade, full-stack event registration and check-in platform. Custome
 | **Email** | Resend SDK · verified domain `test.kigumotvc.ac.ke` |
 | **QR Codes** | `qrcode[pil]` — server-side PNG, in-memory generation |
 | **PDF Badges** | `reportlab` — A6 card-style PDF, async pipeline |
-| **File Storage** | Cloudinary CDN — QR PNGs + badge PDFs (persistent across deploys) |
+| **File Storage** | Cloudinary CDN (QR PNGs) · Cloudflare R2 (badge PDFs, S3-compatible, no delivery restrictions) |
 | **Hosting** | Render — FastAPI web service + React static site |
 
 ---
@@ -92,11 +92,12 @@ Solstice_Events/
 │       │   ├── checkin.py        ← POST /checkin — enqueues badge job, duplicate-scan guard
 │       │   └── webhooks.py       ← POST /webhooks/badge-complete — HMAC-SHA256 validated
 │       └── services/
-│           ├── cloudinary_storage.py  ← upload_image() + upload_pdf() → Cloudinary CDN
+│           ├── cloudinary_storage.py  ← upload_image() → Cloudinary CDN (QR PNGs only)
+│           ├── r2_storage.py     ← upload_pdf() → Cloudflare R2 (badge PDFs, boto3 S3-compat)
 │           ├── qr.py             ← generate PNG in memory → upload to Cloudinary → CDN URL
-│           ├── badge.py          ← generate PDF to tempfile → upload to Cloudinary → CDN URL
+│           ├── badge.py          ← generate PDF to tempfile → upload to R2 → public URL
 │           ├── email.py          ← Resend HTML confirmation email (RESEND_TEST_TO override)
-│           └── worker.py         ← daemon thread: polls queued jobs → badge → signed webhook
+│           └── worker.py         ← daemon thread: polls queued jobs → badge → DB update
 │
 └── frontend/
     ├── index.html                ← favicon = logo.png · title = "Solstice Events — Where Moments Become Memories"
@@ -163,18 +164,13 @@ BadgeWorker daemon thread (polls every 2 s)
   → Finds queued BadgeJob
   → Marks job status = "processing"
   → Sleeps 3–5 s (simulates badge printer)
-  → Generates A6 PDF badge via reportlab (with QR embedded)
-  → Uploads PDF to Cloudinary → gets CDN URL
+  → Generates A6 PDF badge via reportlab (with QR embedded in-memory)
+  → Uploads PDF bytes to Cloudflare R2 → gets permanent public URL
   → Deletes local temp file
-  → Builds webhook payload {job_id, attendee_id, badge_pdf_url, timestamp}
-  → Signs with HMAC-SHA256(WEBHOOK_SECRET)
-  → POST /webhooks/badge-complete with X-Signature header
+  → Updates attendee directly via DB session:
+      attendee.status        = "checked_in"
+      attendee.badge_pdf_url = R2 public URL   ← written exactly once
   → Marks job status = "completed"
-
-POST /webhooks/badge-complete
-  → Validates HMAC signature (401 if invalid)
-  → Sets attendee.status = "checked_in"
-  → Sets attendee.badge_pdf_url = Cloudinary CDN URL
 ```
 
 ### 4. Frontend reflects status in real time
@@ -183,7 +179,9 @@ Customer dashboard / Admin scan page
   → usePolling(getAttendeeStatus, 3000ms, status==="pending")
   → Status changes to "checked_in" → polling stops
   → Toast fires: "Checked In ✓ — badge ready"
-  → "Download Badge" button appears → 302 redirect to Cloudinary CDN PDF
+  → "Download Badge" / "Print Badge" buttons appear
+  → resolveBadgeUrl() reads badge_pdf_url from attendee status
+  → Opens/downloads the PDF directly from R2 CDN — zero backend hop
 ```
 
 ---
@@ -205,12 +203,17 @@ MySQL-compatible serverless database. Four tables:
 - `attendees` — UUID pk, user_id FK, event_id FK, name, profession, qr_code_id, status, badge_pdf_url
 - `badge_jobs` — UUID pk, attendee_id FK, status (queued/processing/completed), timestamps
 
-### Cloudinary (file storage)
-All generated files are uploaded to Cloudinary so they survive Render restarts:
+### Cloudinary (QR code storage)
+QR code PNGs are uploaded to Cloudinary and survive Render restarts:
 - QR codes → `solstice/qrcodes/{qr_code_id}` (PNG, `image` resource type)
-- Badges → `solstice/badges/{attendee_id}` (PDF, `raw` resource type)
 
-The `GET /attendees/{id}/badge` endpoint issues a **302 redirect** to the Cloudinary CDN URL — no file serving overhead on the API server.
+### Cloudflare R2 (badge PDF storage)
+Badge PDFs are uploaded to R2 (S3-compatible, `boto3`) and stored permanently:
+- Badges → `badges/{attendee_id}.pdf` in the configured R2 bucket
+- PDFs are generated **exactly once** per attendee at check-in time
+- The public URL is stored in `attendee.badge_pdf_url` and served directly to the browser — no Cloudinary raw-delivery restrictions, no backend proxy overhead
+
+The `GET /attendees/{id}/badge` endpoint issues a **302 redirect** to the R2 public URL. The frontend reads `badge_pdf_url` from the status poll response and opens R2 directly, skipping even the redirect hop.
 
 ### Resend (email)
 Sending domain: `test.kigumotvc.ac.ke` (verified)
@@ -225,7 +228,8 @@ Delivers to any recipient worldwide.
 - Python 3.11+
 - Node.js 18+
 - TiDB Cloud cluster (free tier — get connection string from the TiDB console)
-- Cloudinary account (free tier — for file storage)
+- Cloudinary account (free tier — for QR code storage)
+- Cloudflare account with an R2 bucket (free tier — for badge PDF storage)
 - Resend account + verified domain (optional — emails log to console if key not set)
 
 ---
@@ -264,7 +268,16 @@ WEBHOOK_SECRET=another-random-string
 BADGE_BASE_URL=http://localhost:8000
 ALLOWED_ORIGINS=http://localhost:5173
 CLOUDINARY_URL=cloudinary://api_key:api_secret@cloud_name
+
+# Cloudflare R2 — badge PDF storage
+R2_ACCOUNT_ID=your_cloudflare_account_id
+R2_ACCESS_KEY_ID=your_r2_access_key_id
+R2_SECRET_ACCESS_KEY=your_r2_secret_access_key
+R2_BUCKET_NAME=solstice-badges
+R2_PUBLIC_URL_BASE=https://pub-xxxxxxxxxxxx.r2.dev
 ```
+
+> **R2 fallback:** if R2 variables are not set, badge PDFs fall back to `backend/app/static/badges/` (local dev only — not persistent on Render).
 
 ```bash
 # Create tables and seed demo data
@@ -313,7 +326,7 @@ Once both servers are running:
 7. **Go to** `/admin/scan` → click **Start Camera** (allow permission) OR paste the QR code ID manually
 8. **Scan / submit** — both tabs immediately show **Pending…** with a spinner
 9. **Wait ~3–5 seconds** — status auto-updates to **Checked In ✓** on both tabs simultaneously (no refresh)
-10. **Click Download Badge** → PDF opens from Cloudinary CDN
+10. **Click Download Badge** → PDF opens directly from Cloudflare R2 CDN (no backend hop)
 11. **Scan the same QR again** → amber **"Already checked in"** banner appears — no duplicate job created
 
 ---
@@ -334,7 +347,7 @@ Once both servers are running:
 | `POST` | `/attendees/register` | Customer | Register for event |
 | `GET` | `/attendees/my` | Customer | My registrations (with event details) |
 | `GET` | `/attendees/{id}/status` | Auth | Status poll for badge pipeline |
-| `GET` | `/attendees/{id}/badge` | Auth | 302 redirect to Cloudinary PDF |
+| `GET` | `/attendees/{id}/badge` | Auth | 302 redirect to R2 public PDF URL |
 | `DELETE` | `/attendees/{id}` | Customer | Unregister (blocked if pending/checked_in) |
 | `POST` | `/checkin` | Admin | Scan QR → enqueue badge job |
 | `POST` | `/webhooks/badge-complete` | HMAC | Worker callback → set checked_in |
@@ -368,7 +381,12 @@ Once both servers are running:
 | `WEBHOOK_SECRET` | ✅ | HMAC-SHA256 secret shared between worker and webhook endpoint |
 | `BADGE_BASE_URL` | ✅ | Backend public URL — used by worker to call the webhook |
 | `ALLOWED_ORIGINS` | ✅ | Comma-separated CORS origins (frontend URL) |
-| `CLOUDINARY_URL` | ⚠️ | `cloudinary://key:secret@cloud_name` — files stored locally if omitted |
+| `CLOUDINARY_URL` | ⚠️ | `cloudinary://key:secret@cloud_name` — QR PNGs stored locally if omitted |
+| `R2_ACCOUNT_ID` | ⚠️ | Cloudflare account ID — badge PDFs stored locally if all R2 vars omitted |
+| `R2_ACCESS_KEY_ID` | ⚠️ | R2 API token Access Key ID |
+| `R2_SECRET_ACCESS_KEY` | ⚠️ | R2 API token Secret Access Key |
+| `R2_BUCKET_NAME` | ⚠️ | Name of the R2 bucket (e.g. `solstice-badges`) |
+| `R2_PUBLIC_URL_BASE` | ⚠️ | Public URL base for the R2 bucket (e.g. `https://pub-xxx.r2.dev`) |
 
 ### Frontend (`frontend/.env`)
 

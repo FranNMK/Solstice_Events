@@ -29,6 +29,16 @@ services:
         sync: false          # set to your frontend URL, e.g. https://solstice-events.onrender.com
       - key: CLOUDINARY_URL
         sync: false          # set to cloudinary://api_key:api_secret@cloud_name
+      - key: R2_ACCOUNT_ID
+        sync: false          # Cloudflare account ID
+      - key: R2_ACCESS_KEY_ID
+        sync: false          # R2 API token Access Key ID
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false          # R2 API token Secret Access Key
+      - key: R2_BUCKET_NAME
+        sync: false          # R2 bucket name, e.g. solstice-badges
+      - key: R2_PUBLIC_URL_BASE
+        sync: false          # public URL base, e.g. https://pub-xxx.r2.dev
 
   # ── Frontend — Static Site ───────────────────────────────────────────────────
   - type: web
